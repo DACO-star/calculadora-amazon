@@ -80,40 +80,43 @@ else:
             c1, c2 = st.columns(2)
             sku_n = c1.text_input("SKU")
             nombre_n = c2.text_input("Nombre")
-            # Agregamos prefijo "$" y definimos el paso de los botones
-            costo_n = c1.number_input("Costo USD", min_value=0.0, format="%.2f", value=0.0, step=1.0)
-            precio_n = c2.number_input("Precio Amazon MXN", min_value=0.0, format="%.2f", value=0.0, step=10.0)
+            
+            # El parámetro 'prefix' pone el signo de pesos fijo a la izquierda
+            costo_n = c1.number_input("Costo USD", min_value=0.0, format="%.2f", step=1.0, prefix="$")
+            precio_n = c2.number_input("Precio Amazon MXN", min_value=0.0, format="%.2f", step=10.0, prefix="$")
+            
             fee_n = c1.number_input("% Fee", min_value=0.0, max_value=100.0, value=10.0, step=0.1)
-            envio_n = c2.number_input("Envío FBA MXN", min_value=0.0, format="%.2f", value=0.0, step=5.0)
+            envio_n = c2.number_input("Envío FBA MXN", min_value=0.0, format="%.2f", step=5.0, prefix="$")
             
             if st.form_submit_button("Guardar en la Nube"):
                 if sku_n and nombre_n:
                     gsheet.append_row([sku_n.upper(), nombre_n.upper(), costo_n, precio_n, envio_n, fee_n])
-                    st.success("¡Producto guardado exitosamente!")
+                    st.success("¡Producto guardado!")
                     st.rerun()
-                else:
-                    st.error("SKU y Nombre son requeridos.")
 
     with tab2:
         if not df_base.empty:
             opciones = df_base['SKU'] + " - " + df_base['PRODUCTO']
-            seleccion = st.selectbox("Seleccionar producto para editar", opciones)
+            seleccion = st.selectbox("Seleccionar para editar", opciones)
             sku_sel = seleccion.split(" - ")[0]
             prod = df_base[df_base['SKU'] == sku_sel].iloc[0]
 
             with st.form("editar"):
                 c1, c2 = st.columns(2)
                 enombre = c1.text_input("Nombre", value=str(prod['PRODUCTO']))
-                ecosto = c2.number_input("Costo USD", value=float(prod['COSTO USD']), format="%.2f", step=1.0)
-                eprecio = c1.number_input("Precio Amazon", value=float(prod['AMAZON']), format="%.2f", step=10.0)
+                
+                # También aquí añadimos el prefix="$"
+                ecosto = c2.number_input("Costo USD", value=float(prod['COSTO USD']), format="%.2f", step=1.0, prefix="$")
+                eprecio = c1.number_input("Precio Amazon", value=float(prod['AMAZON']), format="%.2f", step=10.0, prefix="$")
+                
                 efee = c2.number_input("% Fee", value=float(prod['% FEE']), format="%.1f", step=0.1)
-                eenvio = c1.number_input("Envío FBA", value=float(prod['ENVIO']), format="%.2f", step=5.0)
+                eenvio = c1.number_input("Envío FBA", value=float(prod['ENVIO']), format="%.2f", step=5.0, prefix="$")
                 
                 if st.form_submit_button("Actualizar Cambios"):
                     fila = df_base[df_base['SKU'] == sku_sel].index[0] + 2
                     gsheet.update(range_name=f'A{fila}:F{fila}', 
                                  values=[[sku_sel, enombre.upper(), ecosto, eprecio, eenvio, efee]])
-                    st.success("¡Información actualizada!")
+                    st.success("¡Actualizado!")
                     st.rerun()
 
     # --- 7. TABLA DE ANÁLISIS ---
