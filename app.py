@@ -3,18 +3,15 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- 1. CONFIGURACIÓN DE SEGURIDAD (USUARIOS) ---
+# --- 1. CONFIGURACIÓN DE SEGURIDAD ---
 USUARIOS_VALIDOS = {"admin": "amazon123", "socio": "ventas2026"}
 
 # --- 2. CONEXIÓN A GOOGLE SHEETS ---
 def conectar_google_sheets():
-    # Cargamos las credenciales desde los Secrets de Streamlit
     info_claves = st.secrets["gcp_service_account"]
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(info_claves, scopes=scope)
     cliente = gspread.authorize(creds)
-    
-    # ID de tu hoja de cálculo
     sheet_id = "1mF-9Ayv95PJmk4v8PrIDHf2-lRnHFZd5WOxQ__cb3Ss"
     sheet = cliente.open_by_key(sheet_id).sheet1
     return sheet
@@ -23,6 +20,12 @@ def conectar_google_sheets():
 TIPO_CAMBIO = 18.00
 
 def calcular_valores(costo_usd, precio_amz, pct_fee, envio):
+    # Aseguramos que los valores sean números antes de calcular
+    costo_usd = float(costo_usd)
+    precio_amz = float(precio_amz)
+    pct_fee = float(pct_fee)
+    envio = float(envio)
+
     costo_mxn = costo_usd * TIPO_CAMBIO
     dinero_fee = precio_amz * (pct_fee / 100)
     base_gravable = precio_amz / 1.16
@@ -38,7 +41,7 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🔐 Sistema de Inventario Real-Time")
+    st.title("🔐 Acceso al Sistema")
     usuario = st.text_input("Usuario")
     clave = st.text_input("Contraseña", type="password")
     if st.button("Ingresar"):
@@ -46,16 +49,23 @@ if not st.session_state.autenticado:
             st.session_state.autenticado = True
             st.rerun()
         else:
-            st.error("Acceso denegado")
+            st.error("Error de acceso")
 else:
-    # --- 5. CARGA DE DATOS DESDE GOOGLE SHEETS ---
+    # --- 5. CARGA Y LIMPIEZA DE DATOS ---
     try:
         gsheet = conectar_google_sheets()
-        # Traemos todos los registros del Excel
         data = gsheet.get_all_records()
         df_base = pd.DataFrame(data)
+        
+        if not df_base.empty:
+            # PARCHE DE SEGURIDAD: Convertir SKU y Producto a Texto, y el resto a Números
+            df_base['SKU'] = df_base['SKU'].astype(str)
+            df_base['PRODUCTO'] = df_base['PRODUCTO'].astype(str)
+            cols_num = ['COSTO USD', 'AMAZON', 'ENVIO', '% FEE']
+            for col in cols_num:
+                df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
     except Exception as e:
-        st.error(f"Error al conectar con Google Sheets: {e}")
+        st.error(f"Error de conexión: {e}")
         st.stop()
 
     st.sidebar.title("Menú")
@@ -63,67 +73,57 @@ else:
         st.session_state.autenticado = False
         st.rerun()
 
-    st.title("📦 Panel de Productos Amazon")
+    st.title("📦 Inventario Amazon")
 
-    # --- 6. GESTIÓN DE PRODUCTOS (TABS) ---
-    tab1, tab2 = st.tabs(["➕ Agregar Nuevo", "✏️ Editar Existente"])
+    # --- 6. GESTIÓN (TABS) ---
+    tab1, tab2 = st.tabs(["➕ Agregar", "✏️ Editar"])
 
     with tab1:
-        with st.form("nuevo_prod"):
+        with st.form("nuevo"):
             c1, c2 = st.columns(2)
             sku_n = c1.text_input("SKU")
             nombre_n = c2.text_input("Nombre")
-            costo_n = c1.number_input("Costo USD", min_value=0.0)
-            precio_n = c2.number_input("Precio Amazon MXN", min_value=0.0)
-            fee_n = c1.number_input("% Fee", value=10.0)
-            envio_n = c2.number_input("Envío FBA MXN", min_value=0.0)
+            costo_n = c1.number_input("Costo USD", min_value=0.0, format="%.2f")
+            precio_n = c2.number_input("Precio Amazon MXN", min_value=0.0, format="%.2f")
+            fee_n = c1.number_input("% Fee", value=10.0, format="%.1f")
+            envio_n = c2.number_input("Envío FBA MXN", min_value=0.0, format="%.2f")
             
-            if st.form_submit_button("Guardar en Google Sheets"):
+            if st.form_submit_button("Guardar"):
                 if sku_n and nombre_n:
-                    # Añadir fila al final del Excel
                     gsheet.append_row([sku_n.upper(), nombre_n.upper(), costo_n, precio_n, envio_n, fee_n])
-                    st.success("¡Producto guardado en la nube!")
+                    st.success("Guardado en Google Sheets")
                     st.rerun()
 
     with tab2:
         if not df_base.empty:
             opciones = df_base['SKU'] + " - " + df_base['PRODUCTO']
-            seleccion = st.selectbox("Selecciona para editar", opciones)
+            seleccion = st.selectbox("Seleccionar producto", opciones)
             sku_sel = seleccion.split(" - ")[0]
-            prod_actual = df_base[df_base['SKU'] == sku_sel].iloc[0]
+            prod = df_base[df_base['SKU'] == sku_sel].iloc[0]
 
-            with st.form("edit_prod"):
+            with st.form("editar"):
                 c1, c2 = st.columns(2)
-                enombre = c1.text_input("Nombre", value=prod_actual['PRODUCTO'])
-                ecosto = c2.number_input("Costo USD", value=float(prod_actual['COSTO USD']))
-                eprecio = c1.number_input("Precio Amazon", value=float(prod_actual['AMAZON']))
-                efee = c2.number_input("% Fee", value=float(prod_actual['% FEE']))
-                eenvio = c1.number_input("Envío FBA", value=float(prod_actual['ENVIO']))
+                enombre = c1.text_input("Nombre", value=str(prod['PRODUCTO']))
+                ecosto = c2.number_input("Costo USD", value=float(prod['COSTO USD']))
+                eprecio = c1.number_input("Precio Amazon", value=float(prod['AMAZON']))
+                efee = c2.number_input("% Fee", value=float(prod['% FEE']))
+                eenvio = c1.number_input("Envío FBA", value=float(prod['ENVIO']))
                 
-                if st.form_submit_button("Actualizar en Google Sheets"):
-                    # Buscar la fila en el Excel (sumamos 2 porque gspread empieza en 1 y la fila 1 son encabezados)
-                    fila_idx = df_base[df_base['SKU'] == sku_sel].index[0] + 2
-                    gsheet.update(range_name=f'A{fila_idx}:F{fila_idx}', 
+                if st.form_submit_button("Actualizar"):
+                    fila = df_base[df_base['SKU'] == sku_sel].index[0] + 2
+                    gsheet.update(range_name=f'A{fila}:F{fila}', 
                                  values=[[sku_sel, enombre.upper(), ecosto, eprecio, eenvio, efee]])
-                    st.success("¡Datos actualizados en la nube!")
+                    st.success("Actualizado")
                     st.rerun()
 
-    # --- 7. TABLA DE ANÁLISIS ---
+    # --- 7. TABLA ---
     st.divider()
-    st.subheader("📊 Análisis de Rentabilidad")
-    
     if not df_base.empty:
-        df_analisis = df_base.copy()
-        # Aplicamos cálculos
-        res = df_analisis.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
+        df_calc = df_base.copy()
+        res = df_calc.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
         cols_res = ['COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
-        df_analisis[cols_res] = pd.DataFrame(res.tolist(), index=df_analisis.index)
+        df_calc[cols_res] = pd.DataFrame(res.tolist(), index=df_calc.index)
 
-        # Formato
-        moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
-        fmt = {col: "${:,.2f}" for col in moneda}
-        fmt["MARGEN %"] = "{:.2f}%"
-        fmt["% FEE"] = "{:.1f}%"
-        st.dataframe(df_analisis.style.format(fmt), use_container_width=True)
-    else:
-        st.info("La base de datos está vacía.")
+        fmt = {col: "${:,.2f}" for col in ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']}
+        fmt["MARGEN %"] = "{:.2f}%"; fmt["% FEE"] = "{:.1f}%"
+        st.dataframe(df_calc.style.format(fmt), use_container_width=True)
