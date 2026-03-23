@@ -1,30 +1,39 @@
 import streamlit as st
 import pandas as pd
 
-# --- 1. CONFIGURACIÓN DE SEGURIDAD (USUARIOS) ---
-# En una app real, esto iría en una base de datos segura.
+# --- 1. CONFIGURACIÓN DE SEGURIDAD ---
 USUARIOS_VALIDOS = {"admin": "amazon123", "socio": "ventas2026"}
 
-# --- 2. LÓGICA DE CÁLCULO (Tu fórmula exacta) ---
+# --- 2. LÓGICA DE CÁLCULO ---
 TIPO_CAMBIO = 18.00
 
-def calcular_valores(costo_usd, precio_amz, fee, envio):
+def calcular_valores(costo_usd, precio_amz, pct_fee, envio):
     costo_mxn = costo_usd * TIPO_CAMBIO
+    
+    # Calculamos el Fee en dinero basado en el % seleccionado
+    dinero_fee = precio_amz * (pct_fee / 100)
+    
+    # BASE GRAVABLE (Precio Final / 1.16)
     base_gravable = precio_amz / 1.16
+    
+    # Retenciones sobre la Base
     ret_iva = base_gravable * 0.08
     ret_isr = base_gravable * 0.025
-    quedan = precio_amz - abs(fee) - abs(envio) - ret_iva - ret_isr
+    
+    # QUEDAN (Lo que deposita Amazon)
+    quedan = precio_amz - dinero_fee - abs(envio) - ret_iva - ret_isr
+    
     utilidad = quedan - costo_mxn
-    margen_venta = (utilidad / precio_amz) * 100 if precio_amz != 0 else 0
-    margen_retorno = (utilidad / quedan) * 100 if quedan != 0 else 0
-    return costo_mxn, base_gravable, ret_iva, ret_isr, quedan, utilidad, margen_retorno
+    margen_retorno = (utilidad / quedan) * 100 if quedan > 0 else 0
+    
+    return costo_mxn, dinero_fee, base_gravable, ret_iva, ret_isr, quedan, utilidad, margen_retorno
 
 # --- 3. INICIO DE SESIÓN ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🔐 Acceso al Sistema de Proveedores")
+    st.title("🔐 Sistema de Proveedores")
     usuario = st.text_input("Usuario")
     clave = st.text_input("Contraseña", type="password")
     if st.button("Ingresar"):
@@ -32,57 +41,54 @@ if not st.session_state.autenticado:
             st.session_state.autenticado = True
             st.rerun()
         else:
-            st.error("Usuario o contraseña incorrectos")
+            st.error("Error de acceso")
 else:
-    # --- 4. APLICACIÓN PRINCIPAL (Una vez logueado) ---
-    st.sidebar.title(f"Bienvenido")
+    # --- 4. PANEL LATERAL (CONFIGURACIÓN GLOBAL) ---
+    st.sidebar.title("⚙️ Configuración")
+    # Aquí puedes cambiar el % de Fee para todos los cálculos
+    fee_global = st.sidebar.slider("Porcentaje de Fee Amazon", 0.0, 20.0, 10.0, step=0.5)
+    
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.rerun()
 
-    st.title("📦 Panel de Control de Productos Amazon")
+    st.title("📦 Panel de Productos")
     
-    # Datos iniciales (Simulando una base de datos)
     if 'datos' not in st.session_state:
         st.session_state.datos = pd.DataFrame([
-            {"PRODUCTO": "ROKU EXPRESS HD", "COSTO USD": 14.88, "AMAZON": 579.0, "FEE": 80.0, "ENVIO": 57.32},
-            {"PRODUCTO": "AIRPODS 1A GEN", "COSTO USD": 60.0, "AMAZON": 1699.0, "FEE": 168.2, "ENVIO": 80.0}
+            {"PRODUCTO": "ROKU EXPRESS HD", "COSTO USD": 14.88, "AMAZON": 579.0, "ENVIO": 57.32},
+            {"PRODUCTO": "AIRPODS 1A GEN", "COSTO USD": 60.0, "AMAZON": 1699.0, "ENVIO": 80.0}
         ])
 
-    # Sección para actualizar precios
-    st.subheader("🔄 Actualizar o Agregar Producto")
-    with st.expander("Abrir formulario de edición"):
-        nombre = st.text_input("Nombre del Producto")
-        c_usd = st.number_input("Costo USD", min_value=0.0, step=0.1)
-        p_amz = st.number_input("Precio Amazon MXN", min_value=0.0, step=1.0)
-        f_amz = st.number_input("Fee Amazon", min_value=0.0, step=1.0)
-        e_amz = st.number_input("Envío FBA", min_value=0.0, step=1.0)
+    # Formulario para agregar/editar
+    with st.expander("➕ Agregar o Editar Producto"):
+        col1, col2 = st.columns(2)
+        with col1:
+            nombre = st.text_input("Nombre")
+            c_usd = st.number_input("Costo USD", min_value=0.0)
+        with col2:
+            p_amz = st.number_input("Precio Venta MXN", min_value=0.0)
+            e_amz = st.number_input("Envío FBA MXN", min_value=0.0)
         
-        if st.button("Guardar / Actualizar"):
-            nuevo_item = {"PRODUCTO": nombre.upper(), "COSTO USD": c_usd, "AMAZON": p_amz, "FEE": f_amz, "ENVIO": e_amz}
-            # Si el producto ya existe, lo actualiza; si no, lo agrega
+        if st.button("Guardar Producto"):
+            nuevo = {"PRODUCTO": nombre.upper(), "COSTO USD": c_usd, "AMAZON": p_amz, "ENVIO": e_amz}
             st.session_state.datos = st.session_state.datos[st.session_state.datos.PRODUCTO != nombre.upper()]
-            st.session_state.datos = pd.concat([st.session_state.datos, pd.DataFrame([nuevo_item])], ignore_index=True)
-            st.success("¡Datos actualizados!")
+            st.session_state.datos = pd.concat([st.session_state.datos, pd.DataFrame([nuevo])], ignore_index=True)
+            st.success("Actualizado")
 
-    # --- 5. TABLA DE RESULTADOS EN TIEMPO REAL ---
-    st.subheader("📊 Análisis de Rentabilidad")
+    # --- 5. TABLA FINAL CON FORMATO ---
+    st.subheader(f"📊 Análisis con Fee del {fee_global}%")
     
-    # Aplicamos los cálculos a la tabla
     df = st.session_state.datos.copy()
-    resultados = df.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['FEE'], r['ENVIO']), axis=1)
+    # Aplicar la función usando el fee_global de la barra lateral
+    res = df.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], fee_global, r['ENVIO']), axis=1)
     
-    # Desglosamos los resultados en columnas
-    res_cols = ['COSTO MXN', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
-    df[res_cols] = pd.DataFrame(resultados.tolist(), index=df.index)
+    cols_res = ['COSTO MXN', 'FEE AMZ', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
+    df[cols_res] = pd.DataFrame(res.tolist(), index=df.index)
 
-    # --- 🎨 ESTE ES EL CAMBIO IMPORTANTE: FORMATEAR TODO ---
-    # Definimos qué columnas son dinero
-    cols_dinero = ['COSTO USD', 'AMAZON', 'FEE', 'ENVIO', 'COSTO MXN', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
-    
-    # Aplicamos el formato de $0.00 a todas esas columnas y 0.00% al margen
-    formato_columnas = {col: "${:,.2f}" for col in cols_dinero}
-    formato_columnas["MARGEN %"] = "{:.2f}%"
+    # Formato profesional
+    moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'FEE AMZ', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
+    estilo = {col: "${:,.2f}" for col in moneda}
+    estilo["MARGEN %"] = "{:.2f}%"
 
-    # Mostramos la tabla con el nuevo estilo
-    st.dataframe(df.style.format(formato_columnas))
+    st.dataframe(df.style.format(estilo))
