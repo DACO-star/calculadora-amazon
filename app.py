@@ -96,4 +96,12 @@ else:
     res = df.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
     
     cols_res = ['COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
-    df[cols_res] = pd
+    df[cols_res] = pd.DataFrame(res.tolist(), index=df.index)
+
+    # Formatear la tabla para que se vea profesional
+    columnas_moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
+    formato = {col: "${:,.2f}" for col in columnas_moneda}
+    formato["MARGEN %"] = "{:.2f}%"
+    formato["% FEE"] = "{:.1f}%"
+
+    st.dataframe(df.style.format(formato))
