@@ -4,7 +4,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- 1. CONFIGURACIÓN ---
-USUARIOS = {"admin": "amazon123", "socio": "ventas2026"}
+USUARIOS = {
+    "admin": "amazon123", 
+    "cesar": "ventas2026",
+    "fidel": "amazon2026",  # Usuario extra 1
+}
 TIPO_CAMBIO = 18.00
 
 def conectar():
