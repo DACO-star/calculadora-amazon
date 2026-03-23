@@ -4,6 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- 1. CONFIGURACIÓN ---
+st.set_page_config(layout="wide", page_title="Calculadora Amazon Pro")
 USUARIOS = {
     "admin": "amazon123", 
     "cesar": "ventas2026",
