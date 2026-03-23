@@ -76,8 +76,13 @@ else:
     res_cols = ['COSTO MXN', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
     df[res_cols] = pd.DataFrame(resultados.tolist(), index=df.index)
 
-    # Mostrar la tabla con formato bonito
-    st.dataframe(df.style.format({
-        "COSTO MXN": "${:,.2f}", "AMAZON": "${:,.2f}", "QUEDAN": "${:,.2f}", 
-        "UTILIDAD": "${:,.2f}", "MARGEN %": "{:.2f}%"
-    }))
+    # --- 🎨 ESTE ES EL CAMBIO IMPORTANTE: FORMATEAR TODO ---
+    # Definimos qué columnas son dinero
+    cols_dinero = ['COSTO USD', 'AMAZON', 'FEE', 'ENVIO', 'COSTO MXN', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
+    
+    # Aplicamos el formato de $0.00 a todas esas columnas y 0.00% al margen
+    formato_columnas = {col: "${:,.2f}" for col in cols_dinero}
+    formato_columnas["MARGEN %"] = "{:.2f}%"
+
+    # Mostramos la tabla con el nuevo estilo
+    st.dataframe(df.style.format(formato_columnas))
