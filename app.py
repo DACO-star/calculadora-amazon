@@ -20,118 +20,107 @@ def conectar_google_sheets():
 TIPO_CAMBIO = 18.00
 
 def calcular_valores(costo_usd, precio_amz, pct_fee, envio):
-    costo_usd = float(costo_usd)
-    precio_amz = float(precio_amz)
-    pct_fee = float(pct_fee)
-    envio = float(envio)
+    c_usd = float(costo_usd)
+    p_amz = float(precio_amz)
+    p_fee = float(pct_fee)
+    env = float(envio)
 
-    costo_mxn = costo_usd * TIPO_CAMBIO
-    dinero_fee = precio_amz * (pct_fee / 100)
-    base_gravable = precio_amz / 1.16
+    costo_mxn = c_usd * TIPO_CAMBIO
+    dinero_fee = p_amz * (p_fee / 100)
+    base_gravable = p_amz / 1.16
     ret_iva = base_gravable * 0.08
     ret_isr = base_gravable * 0.025
-    quedan = precio_amz - dinero_fee - abs(envio) - ret_iva - ret_isr
+    quedan = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = quedan - costo_mxn
-    margen_retorno = (utilidad / quedan) * 100 if quedan > 0 else 0
-    return costo_mxn, dinero_fee, base_gravable, ret_iva, ret_isr, quedan, utilidad, margen_retorno
+    margen = (utilidad / quedan) * 100 if quedan > 0 else 0
+    return costo_mxn, dinero_fee, base_gravable, ret_iva, ret_isr, quedan, utilidad, margen
 
-# --- 4. INICIO DE SESIÓN ---
+# --- 4. LOGIN ---
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
     st.title("🔐 Acceso al Sistema")
-    usuario = st.text_input("Usuario")
-    clave = st.text_input("Contraseña", type="password")
+    u = st.text_input("Usuario")
+    p = st.text_input("Contraseña", type="password")
     if st.button("Ingresar"):
-        if usuario in USUARIOS_VALIDOS and USUARIOS_VALIDOS[usuario] == clave:
+        if u in USUARIOS_VALIDOS and USUARIOS_VALIDOS[u] == p:
             st.session_state.autenticado = True
             st.rerun()
         else:
-            st.error("Error de acceso")
+            st.error("Credenciales incorrectas")
 else:
-    # --- 5. CARGA Y LIMPIEZA DE DATOS ---
+    # --- 5. DATOS ---
     try:
         gsheet = conectar_google_sheets()
-        data = gsheet.get_all_records()
-        df_base = pd.DataFrame(data)
-        
+        df_base = pd.DataFrame(gsheet.get_all_records())
         if not df_base.empty:
             df_base['SKU'] = df_base['SKU'].astype(str)
             df_base['PRODUCTO'] = df_base['PRODUCTO'].astype(str)
-            for col in ['COSTO USD', 'AMAZON', 'ENVIO', '% FEE']:
-                df_base[col] = pd.to_numeric(df_base[col], errors='coerce').fillna(0)
+            for c in ['COSTO USD', 'AMAZON', 'ENVIO', '% FEE']:
+                df_base[c] = pd.to_numeric(df_base[c], errors='coerce').fillna(0)
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error: {e}")
         st.stop()
 
-    st.sidebar.title("Menú")
-    if st.sidebar.button("Cerrar Sesión"):
-        st.session_state.autenticado = False
-        st.rerun()
+    st.title("📦 Gestión de Inventario")
 
-    st.title("📦 Inventario Amazon")
-
-    # --- 6. GESTIÓN (TABS) ---
-    tab1, tab2 = st.tabs(["➕ Agregar Producto", "✏️ Editar Existente"])
+    tab1, tab2 = st.tabs(["➕ Agregar Producto", "✏️ Editar / Borrar"])
 
     with tab1:
         with st.form("nuevo"):
             c1, c2 = st.columns(2)
             sku_n = c1.text_input("SKU")
-            nombre_n = c2.text_input("Nombre")
+            nom_n = c2.text_input("Nombre")
+            # El prefijo "$" ahora funcionará por la actualización de versión
+            costo_n = c1.number_input("Costo USD", format="%.2f", step=1.0, prefix="$")
+            precio_n = c2.number_input("Precio Amazon MXN", format="%.2f", step=10.0, prefix="$")
+            fee_n = c1.number_input("% Fee", value=10.0, step=0.1)
+            envio_n = c2.number_input("Envío FBA MXN", format="%.2f", step=5.0, prefix="$")
             
-            # El parámetro 'prefix' pone el signo de pesos fijo a la izquierda
-            costo_n = c1.number_input("Costo USD", min_value=0.0, format="%.2f", step=1.0, prefix="$")
-            precio_n = c2.number_input("Precio Amazon MXN", min_value=0.0, format="%.2f", step=10.0, prefix="$")
-            
-            fee_n = c1.number_input("% Fee", min_value=0.0, max_value=100.0, value=10.0, step=0.1)
-            envio_n = c2.number_input("Envío FBA MXN", min_value=0.0, format="%.2f", step=5.0, prefix="$")
-            
-            if st.form_submit_button("Guardar en la Nube"):
-                if sku_n and nombre_n:
-                    gsheet.append_row([sku_n.upper(), nombre_n.upper(), costo_n, precio_n, envio_n, fee_n])
-                    st.success("¡Producto guardado!")
+            if st.form_submit_button("Guardar en Nube"):
+                if sku_n and nom_n:
+                    gsheet.append_row([sku_n.upper(), nom_n.upper(), costo_n, precio_n, envio_n, fee_n])
+                    st.success("¡Listo!")
                     st.rerun()
 
     with tab2:
         if not df_base.empty:
             opciones = df_base['SKU'] + " - " + df_base['PRODUCTO']
-            seleccion = st.selectbox("Seleccionar para editar", opciones)
-            sku_sel = seleccion.split(" - ")[0]
-            prod = df_base[df_base['SKU'] == sku_sel].iloc[0]
+            sel = st.selectbox("Seleccionar producto", opciones)
+            sku_s = sel.split(" - ")[0]
+            prod = df_base[df_base['SKU'] == sku_s].iloc[0]
 
             with st.form("editar"):
                 c1, c2 = st.columns(2)
-                enombre = c1.text_input("Nombre", value=str(prod['PRODUCTO']))
+                enom = c1.text_input("Nombre", value=str(prod['PRODUCTO']))
+                ecos = c2.number_input("Costo USD", value=float(prod['COSTO USD']), format="%.2f", step=1.0, prefix="$")
+                epre = c1.number_input("Precio Amazon", value=float(prod['AMAZON']), format="%.2f", step=10.0, prefix="$")
+                efee = c2.number_input("% Fee", value=float(prod['% FEE']), step=0.1)
+                eenv = c1.number_input("Envío FBA", value=float(prod['ENVIO']), format="%.2f", step=5.0, prefix="$")
                 
-                # También aquí añadimos el prefix="$"
-                ecosto = c2.number_input("Costo USD", value=float(prod['COSTO USD']), format="%.2f", step=1.0, prefix="$")
-                eprecio = c1.number_input("Precio Amazon", value=float(prod['AMAZON']), format="%.2f", step=10.0, prefix="$")
-                
-                efee = c2.number_input("% Fee", value=float(prod['% FEE']), format="%.1f", step=0.1)
-                eenvio = c1.number_input("Envío FBA", value=float(prod['ENVIO']), format="%.2f", step=5.0, prefix="$")
-                
-                if st.form_submit_button("Actualizar Cambios"):
-                    fila = df_base[df_base['SKU'] == sku_sel].index[0] + 2
-                    gsheet.update(range_name=f'A{fila}:F{fila}', 
-                                 values=[[sku_sel, enombre.upper(), ecosto, eprecio, eenvio, efee]])
-                    st.success("¡Actualizado!")
+                if st.form_submit_button("Actualizar"):
+                    idx = df_base[df_base['SKU'] == sku_s].index[0] + 2
+                    gsheet.update(range_name=f'A{idx}:F{idx}', 
+                                 values=[[sku_s, enom.upper(), ecos, epre, eenv, efee]])
+                    st.success("Actualizado")
                     st.rerun()
+            
+            # --- SECCIÓN DE BORRADO ---
+            st.warning("⚠️ Zona de Peligro")
+            if st.button(f"🗑️ Eliminar permanentemente {sku_s}", use_container_width=True):
+                idx = df_base[df_base['SKU'] == sku_s].index[0] + 2
+                gsheet.delete_rows(idx)
+                st.success("Producto eliminado del Excel")
+                st.rerun()
 
-    # --- 7. TABLA DE ANÁLISIS ---
+    # --- TABLA FINAL ---
     st.divider()
     if not df_base.empty:
-        df_calc = df_base.copy()
-        res = df_calc.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
-        cols_res = ['COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
-        df_calc[cols_res] = pd.DataFrame(res.tolist(), index=df_calc.index)
-
-        # Formato de visualización de la tabla
-        columnas_dinero = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
-        fmt = {col: "${:,.2f}" for col in columnas_dinero}
-        fmt["MARGEN %"] = "{:.2f}%"
-        fmt["% FEE"] = "{:.1f}%"
+        df_c = df_base.copy()
+        res = df_c.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
+        cols = ['COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
+        df_c[cols] = pd.DataFrame(res.tolist(), index=df_c.index)
         
-        st.subheader("📊 Tabla de Rentabilidad Final")
-        st.dataframe(df_calc.style.format(fmt), use_container_width=True)
+        mon = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
+        st.dataframe(df_c.style.format({c: "${:,.2f}" for c in mon} | {"MARGEN %": "{:.2f}%", "% FEE": "{:.1f}%"}), use_container_width=True)
