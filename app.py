@@ -10,7 +10,7 @@ TIPO_CAMBIO = 18.00
 def calcular_valores(costo_usd, precio_amz, pct_fee, envio):
     costo_mxn = costo_usd * TIPO_CAMBIO
     
-    # El Fee se calcula usando el % específico de este producto
+    # El Fee se calcula usando el % específico de cada producto
     dinero_fee = precio_amz * (pct_fee / 100)
     
     # BASE GRAVABLE (Precio Final / 1.16)
@@ -20,12 +20,12 @@ def calcular_valores(costo_usd, precio_amz, pct_fee, envio):
     ret_iva = base_gravable * 0.08
     ret_isr = base_gravable * 0.025
     
-    # QUEDAN (Lo que deposita Amazon)
+    # QUEDAN (Lo que realmente recibes de Amazon)
     quedan = precio_amz - dinero_fee - abs(envio) - ret_iva - ret_isr
     
     utilidad = quedan - costo_mxn
     
-    # Margen sobre lo que queda (Tu fórmula)
+    # Margen sobre lo que queda (Tu fórmula preferida)
     margen_retorno = (utilidad / quedan) * 100 if quedan > 0 else 0
     
     return costo_mxn, dinero_fee, base_gravable, ret_iva, ret_isr, quedan, utilidad, margen_retorno
@@ -53,11 +53,11 @@ else:
 
     st.title("📦 Panel de Productos Amazon")
     
-    # Base de datos temporal con columna '% FEE'
-    if 'datos' not in st.session_state:
+    # REINICIAR DATOS SI HAY ERROR DE NOMBRE DE COLUMNA
+    if 'datos' not in st.session_state or '% FEE' not in st.session_state.datos.columns:
         st.session_state.datos = pd.DataFrame([
             {"PRODUCTO": "ROKU EXPRESS HD", "COSTO USD": 14.88, "AMAZON": 579.0, "ENVIO": 57.32, "% FEE": 10.0},
-            {"PRODUCTO": "AIRPODS 1A GEN", "COSTO USD": 60.0, "AMAZON": 1699.0, "ENVIO": 80.0, "% FEE": 10.0}
+            {"PRODUCTO": "AIRPODS 1A GEN", "COSTO USD": 60.0, "AMAZON": 1,699.0, "ENVIO": 80.0, "% FEE": 10.0}
         ])
 
     # Formulario para agregar/editar
@@ -66,7 +66,7 @@ else:
         with col1:
             nombre = st.text_input("Nombre del Producto")
             c_usd = st.number_input("Costo USD (Proveedor)", min_value=0.0)
-            p_fee = st.number_input("% de Fee Amazon (ej. 10 o 15)", min_value=0.0, max_value=100.0, value=10.0)
+            p_fee = st.number_input("% de Fee Amazon (ej. 10)", min_value=0.0, max_value=100.0, value=10.0)
         with col2:
             p_amz = st.number_input("Precio Venta Amazon MXN", min_value=0.0)
             e_amz = st.number_input("Envío FBA MXN", min_value=0.0)
@@ -83,22 +83,21 @@ else:
                 # Actualizar si ya existe o agregar nuevo
                 st.session_state.datos = st.session_state.datos[st.session_state.datos.PRODUCTO != nombre.upper()]
                 st.session_state.datos = pd.concat([st.session_state.datos, pd.DataFrame([nuevo])], ignore_index=True)
-                st.success(f"✅ {nombre.upper()} guardado correctamente.")
-            else:
-                st.warning("Escribe el nombre del producto.")
+                st.success(f"✅ {nombre.upper()} guardado.")
+                st.rerun()
 
     # --- 5. TABLA DE RESULTADOS ---
     st.subheader("📊 Análisis de Rentabilidad")
     
     df = st.session_state.datos.copy()
     
-    # Aplicar cálculos usando el % FEE individual de cada fila
+    # Cálculo fila por fila
     res = df.apply(lambda r: calcular_valores(r['COSTO USD'], r['AMAZON'], r['% FEE'], r['ENVIO']), axis=1)
     
     cols_res = ['COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD', 'MARGEN %']
     df[cols_res] = pd.DataFrame(res.tolist(), index=df.index)
 
-    # Formatear la tabla para que se vea profesional
+    # Formato visual
     columnas_moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'DINERO FEE', 'BASE GRAV', 'RET IVA', 'RET ISR', 'QUEDAN', 'UTILIDAD']
     formato = {col: "${:,.2f}" for col in columnas_moneda}
     formato["MARGEN %"] = "{:.2f}%"
