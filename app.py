@@ -183,4 +183,5 @@ else:
         st.dataframe(
             df_final.style.format(formato, na_rep="-").applymap(color_margen, subset=['MARGEN %']), 
             use_container_width=True, height=600
+            hide_index=True
         )
