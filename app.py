@@ -102,4 +102,44 @@ else:
 
     with t3:
         st.subheader("Carga Masiva con Cálculo Automático")
-        archivo = st.file_uploader("Subir Excel/CSV
+        archivo = st.file_uploader("Subir Excel/CSV del proveedor", type=['xlsx', 'csv'])
+        if archivo:
+            df_b = pd.read_excel(archivo) if archivo.name.endswith('xlsx') else pd.read_csv(archivo)
+            df_b.columns = [str(c).strip().upper() for c in df_b.columns]
+            if all(c in df_b.columns for c in ['PRODUCTO', 'COSTO USD']):
+                if 'SKU' not in df_b.columns: df_b['SKU'] = [f"B-{i+len(df_raw)+1:03d}" for i in range(len(df_b))]
+                if 'ENVIO' not in df_b.columns: df_b['ENVIO'] = 0.0
+                if '% FEE' not in df_b.columns: df_b['% FEE'] = 10.0
+                df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r['% FEE'], r['ENVIO']), axis=1)
+                st.write("Vista previa:")
+                st.dataframe(df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].head())
+                if st.button("🚀 Subir a Sheets"):
+                    ws.append_rows(df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].values.tolist())
+                    st.success("¡Cargado!"); st.rerun()
+
+    st.divider()
+    if not df_raw.empty:
+        busqueda = st.text_input("🔍 Buscar SKU o Producto...", "").strip().upper()
+        res = df_raw.apply(calcular_detallado, axis=1)
+        res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
+        df_f = pd.concat([df_raw, res], axis=1)
+        
+        if busqueda:
+            df_f = df_f[df_f['SKU'].astype(str).str.contains(busqueda) | df_f['PRODUCTO'].astype(str).str.contains(busqueda)]
+        
+        m1, m2 = st.columns(2)
+        m1.metric("Productos", len(df_f))
+        m2.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():.2f}%")
+        
+        # --- FORMATO CON SIGNOS RE-ACTIVADO ---
+        cols_moneda = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
+        cols_porcentaje = ['MARGEN %','% FEE']
+        
+        formato = {c: "${:,.2f}" for c in cols_moneda}
+        formato.update({c: "{:.2f}%" for c in cols_porcentaje})
+        
+        st.dataframe(
+            df_f.style.format(formato), 
+            use_container_width=True, 
+            height=500
+        )
