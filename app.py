@@ -6,12 +6,14 @@ from google.oauth2.service_account import Credentials
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(layout="wide", page_title="Calculadora Amazon Pro")
 
+# --- LISTA DE USUARIOS ACTUALIZADA ---
 USUARIOS = {
     "admin": "amazon123", 
     "dav": "ventas2026",
     "dax": "amazon2026",
     "cesar": "ventas789"
 }
+
 TIPO_CAMBIO = 18.00
 
 def conectar():
@@ -42,7 +44,7 @@ if 'auth' not in st.session_state:
 
 if not st.session_state.auth:
     st.title("🔐 Acceso al Sistema")
-    u = st.text_input("Usuario")
+    u = st.text_input("Usuario").lower().strip()
     p = st.text_input("Clave", type="password")
     if st.button("Ingresar"):
         if u in USUARIOS and USUARIOS[u] == p:
@@ -57,6 +59,7 @@ else:
         st.write(f"👤 Usuario: **{st.session_state.user.upper()}**")
         if st.button("Cerrar Sesión"):
             st.session_state.auth = False
+            st.session_state.user = ""
             st.rerun()
     
     # --- 3. DATOS ---
@@ -100,7 +103,7 @@ else:
                 col_e1, col_e2 = st.columns(2)
                 enom = col_e1.text_input("Nombre", value=str(curr['PRODUCTO']))
                 ecos = col_e2.number_input("Costo USD", value=float(curr['COSTO USD']), format="%.2f")
-                epre = col_e1.number_input("Precio MXN", value=float(curr['AMAZON']), format="%.2f")
+                epre = col_e1.number_input("Precio Amazon MXN", value=float(curr['AMAZON']), format="%.2f")
                 efee = col_e2.number_input("% Fee", value=float(curr['% FEE']))
                 eenv = col_e1.number_input("Envío FBA", value=float(curr['ENVIO']), format="%.2f")
                 if st.form_submit_button("Actualizar Datos"):
@@ -109,8 +112,8 @@ else:
                     st.success("¡Actualizado!")
                     st.rerun()
             
-            # Solo admin y socio pueden borrar (Ejemplo de restricción)
-            if st.session_state.user in ["admin", "socio"]:
+            # Solo admin y dav pueden borrar
+            if st.session_state.user in ["admin", "dav"]:
                 if st.button("🗑️ Eliminar Producto"):
                     ws.delete_rows(int(idx + 2))
                     st.rerun()
@@ -120,15 +123,15 @@ else:
     st.subheader("📊 Análisis de Rentabilidad")
     
     if not df_raw.empty:
-        # --- LÓGICA DEL BUSCADOR ---
-        busqueda = st.text_input("🔍 Buscar por SKU o Nombre (coincidencia parcial)", "").strip().upper()
+        # Buscador
+        busqueda = st.text_input("🔍 Buscar por SKU o Nombre", "").strip().upper()
         
-        # Realizamos los cálculos primero
+        # Cálculos
         res = df_raw.apply(calcular_detallado, axis=1)
         res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
         df_final = pd.concat([df_raw, res], axis=1)
         
-        # Filtramos el DataFrame según la búsqueda
+        # Filtro de búsqueda
         if busqueda:
             mask = df_final['SKU'].astype(str).str.contains(busqueda) | \
                    df_final['PRODUCTO'].astype(str).str.contains(busqueda)
@@ -136,15 +139,18 @@ else:
         else:
             df_mostrar = df_final
 
-        # Formato y visualización
+        # Resumen rápido sobre la tabla
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Productos encontrados", len(df_mostrar))
+        c2.metric("Utilidad Total (Filtro)", f"${df_mostrar['UTILIDAD'].sum():,.2f}")
+        c3.metric("Margen Promedio", f"{df_mostrar['MARGEN %'].mean():,.2f}%")
+
+        # Visualización de tabla
         money_cols = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
         st.dataframe(
             df_mostrar.style.format({c: "${:,.2f}" for c in money_cols} | {"MARGEN %": "{:.2f}%"}),
             use_container_width=True,
-            height=500
+            height=600
         )
-        
-        if df_mostrar.empty:
-            st.warning(f"No se encontraron resultados para: '{busqueda}'")
     else:
         st.info("No hay datos para mostrar.")
