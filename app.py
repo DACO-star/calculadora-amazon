@@ -5,8 +5,8 @@ from google.oauth2.service_account import Credentials
 import io
 from fpdf import FPDF
 
-# --- CalcuAMZ v2.2 (Dólar por Registro / Congelado) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ v2.2")
+# --- CalcuAMZ v2.2.1 (Formato de Dólar Corregido) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ v2.2.1")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -30,7 +30,6 @@ def calcular_detallado(r):
     p_amz = float(r.get('AMAZON', 0))
     p_fee = float(r.get('% FEE', 10.0))
     env = float(r.get('ENVIO', 0))
-    # USAMOS EL DÓLAR GUARDADO EN ESA FILA ESPECÍFICA
     t_c = float(r.get('TIPO CAMBIO', 18.00))
     
     costo_mxn = c_usd * t_c
@@ -42,12 +41,12 @@ def calcular_detallado(r):
     neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = neto - costo_mxn
     margen = (utilidad / neto) * 100 if neto > 0 else 0
-    return pd.Series([t_c, costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
+    # Eliminamos TC de aquí para no duplicar columnas
+    return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
 def color_margen(val):
     return 'color: red' if isinstance(val, (int, float)) and val < 0 else 'color: white'
 
-# --- Lógica de Sesión ---
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
@@ -64,13 +63,11 @@ else:
         if not df_raw.empty: df_raw.columns = [str(c).strip().upper() for c in df_raw.columns]
     except: st.error("Error conexión"); st.stop()
 
-    # SIDEBAR PARA DÓLAR DEL MOMENTO
     with st.sidebar:
         st.header("💵 Dólar Hoy")
         dolar_actual = st.number_input("Tipo de Cambio para NUEVAS cargas", value=18.00, step=0.01)
-        st.info("Este valor solo afectará a los productos que guardes o subas a partir de ahora.")
 
-    st.title("📦 Gestión v2.2 (Precios Congelados)")
+    st.title("📦 Gestión v2.2.1")
     t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga Masiva"])
 
     with t1:
@@ -85,7 +82,6 @@ else:
             pr = c2.number_input("Precio Venta", value=float(p_sug))
             if st.form_submit_button("Guardar"):
                 sku_f = sk if sk else f"A-{len(df_raw)+1}"
-                # GUARDAMOS EL DÓLAR ACTUAL EN LA COLUMNA 7
                 ws.append_row([sku_f, no.upper(), c_usd, pr, env, fee, dolar_actual])
                 st.rerun()
 
@@ -100,13 +96,13 @@ else:
                 epre = st.number_input("Precio MXN", value=float(curr['AMAZON']))
                 etc = st.number_input("Dólar de esta compra", value=float(curr.get('TIPO CAMBIO', 18.0)))
                 if st.form_submit_button("Actualizar"):
-                    # Actualizamos incluyendo el tipo de cambio
-                    ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], etc]])
+                    ws.update(range_name=f'A{idx+2}:G{idx+2}', values=[[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], etc]])
                     st.rerun()
+            if st.session_state.user in ["admin", "dav"] and st.button("🗑️ Eliminar Producto"):
+                ws.delete_rows(int(idx + 2)); st.rerun()
 
     with t3:
         st.subheader("Subida Masiva")
-        # Plantilla ahora incluye columna opcional de Tipo Cambio si quieres
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
             pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', '% FEE', 'ENVIO']).to_excel(wr, index=False)
@@ -117,26 +113,24 @@ else:
             df_b = pd.read_excel(arc) if arc.name.endswith('xlsx') else pd.read_csv(arc)
             df_b.columns = [str(c).strip().upper() for c in df_b.columns]
             df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r.get('% FEE', 10), r.get('ENVIO', 0), dolar_actual), axis=1)
-            st.dataframe(df_b.head())
             if st.button("🚀 Subir con Dólar: " + str(dolar_actual)):
-                filas = []
-                for _, f in df_b.iterrows():
-                    filas.append([str(f['SKU']), f['PRODUCTO'].upper(), f['COSTO USD'], f['AMAZON'], f.get('ENVIO', 0), f.get('% FEE', 10), dolar_actual])
-                ws.append_rows(filas)
-                st.rerun()
+                filas = [[str(f['SKU']), f['PRODUCTO'].upper(), f['COSTO USD'], f['AMAZON'], f.get('ENVIO', 0), f.get('% FEE', 10), dolar_actual] for _, f in df_b.iterrows()]
+                ws.append_rows(filas); st.rerun()
 
     st.divider()
     if not df_raw.empty:
         bus = st.text_input("🔍 Buscar").strip().upper()
+        # Aquí calculamos pero ya no añadimos la columna TC duplicada
         res = df_raw.apply(calcular_detallado, axis=1)
-        res.columns = ['TC', 'COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
+        res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
         df_f = pd.concat([df_raw, res], axis=1)
+        
         if bus: df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
         
-        # TABLA FINAL
-        moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
+        # --- Formato con Signos de Pesos (Incluyendo TIPO CAMBIO) ---
+        moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'TIPO CAMBIO', 'COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
         formato = {c: "${:,.2f}" for c in moneda}
-        formato.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%", 'TC': "{:.2f}"})
+        formato.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
         
         st.dataframe(
             df_f.style.format(formato, na_rep="-").applymap(color_margen, subset=['MARGEN %']), 
