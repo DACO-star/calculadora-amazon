@@ -5,8 +5,8 @@ from google.oauth2.service_account import Credentials
 import io
 from fpdf import FPDF
 
-# --- CalcuAMZ v2.3 (Columnas Reordenadas) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ v2.3")
+# --- CalcuAMZ v2.3.1 (Semáforo de Margen) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ v2.3.1")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -31,20 +31,32 @@ def calcular_detallado(r):
     p_fee = float(r.get('% FEE', 10.0))
     env = float(r.get('ENVIO', 0))
     t_c = float(r.get('TIPO CAMBIO', 18.00))
-    
     costo_mxn = c_usd * t_c
     dinero_fee = p_amz * (p_fee / 100)
     base_gravable = p_amz / 1.16
     ret_iva = base_gravable * 0.08
     ret_isr = base_gravable * 0.025
-    
     neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = neto - costo_mxn
     margen = (utilidad / neto) * 100 if neto > 0 else 0
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
-def color_margen(val):
-    return 'color: red' if isinstance(val, (int, float)) and val < 0 else 'color: white'
+# --- LÓGICA DE COLORES (SEMÁFORO) ---
+def estilo_semaforo(val):
+    if not isinstance(val, (int, float)): return ''
+    
+    # Color de letra (Rojo si es negativo)
+    color_letra = 'color: #ff4b4b;' if val < 0 else 'color: white;'
+    
+    # Color de fondo (Rangos solicitados)
+    if val <= 6.0:
+        bg = 'background-color: #551a1a;' # Rojo tenue/oscuro
+    elif 6.1 <= val <= 8.0:
+        bg = 'background-color: #5e541e;' # Amarillo tenue/mostaza
+    else: # Arriba de 8.1
+        bg = 'background-color: #1a4d1a;' # Verde tenue/bosque
+        
+    return f'{color_letra} {bg}'
 
 if 'auth' not in st.session_state: st.session_state.auth = False
 
@@ -66,7 +78,7 @@ else:
         st.header("💵 Dólar Hoy")
         dolar_actual = st.number_input("Tipo de Cambio para NUEVAS cargas", value=18.00, step=0.01)
 
-    st.title("📦 Gestión v2.3")
+    st.title("📦 Gestión v2.3.1 (Visual)")
     t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga Masiva"])
 
     with t1:
@@ -77,11 +89,9 @@ else:
             c_usd = c1.number_input("Costo USD", format="%.2f")
             fee = c2.number_input("% Fee", value=10.0)
             env = c1.number_input("Envío FBA", value=0.0)
-            p_sug = calcular_precio_sugerido(c_usd, fee, env, dolar_actual)
-            pr = c2.number_input("Precio Venta", value=float(p_sug))
+            pr = c2.number_input("Precio Venta", value=float(calcular_precio_sugerido(c_usd, fee, env, dolar_actual)))
             if st.form_submit_button("Guardar"):
-                sku_f = sk if sk else f"A-{len(df_raw)+1}"
-                ws.append_row([sku_f, no.upper(), c_usd, pr, env, fee, dolar_actual])
+                ws.append_row([sk if sk else f"A-{len(df_raw)+1}", no.upper(), c_usd, pr, env, fee, dolar_actual])
                 st.rerun()
 
     with t2:
@@ -97,22 +107,17 @@ else:
                 if st.form_submit_button("Actualizar"):
                     ws.update(range_name=f'A{idx+2}:G{idx+2}', values=[[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], etc]])
                     st.rerun()
-            if st.session_state.user in ["admin", "dav"] and st.button("🗑️ Eliminar Producto"):
+            if st.session_state.user in ["admin", "dav"] and st.button("🗑️ Eliminar"):
                 ws.delete_rows(int(idx + 2)); st.rerun()
 
     with t3:
         st.subheader("Subida Masiva")
-        buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
-            pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', '% FEE', 'ENVIO']).to_excel(wr, index=False)
-        st.download_button("📥 Plantilla", buf.getvalue(), "plantilla.xlsx")
-        
         arc = st.file_uploader("Archivo", type=['xlsx', 'csv'])
         if arc:
             df_b = pd.read_excel(arc) if arc.name.endswith('xlsx') else pd.read_csv(arc)
             df_b.columns = [str(c).strip().upper() for c in df_b.columns]
             df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r.get('% FEE', 10), r.get('ENVIO', 0), dolar_actual), axis=1)
-            if st.button("🚀 Subir con Dólar: " + str(dolar_actual)):
+            if st.button("🚀 Subir todo"):
                 filas = [[str(f['SKU']), f['PRODUCTO'].upper(), f['COSTO USD'], f['AMAZON'], f.get('ENVIO', 0), f.get('% FEE', 10), dolar_actual] for _, f in df_b.iterrows()]
                 ws.append_rows(filas); st.rerun()
 
@@ -121,29 +126,19 @@ else:
         bus = st.text_input("🔍 Buscar").strip().upper()
         res = df_raw.apply(calcular_detallado, axis=1)
         res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
-        
-        # --- REORDENAMIENTO DE COLUMNAS ---
-        # Unimos las bases
         df_f = pd.concat([df_raw, res], axis=1)
         
-        # Definimos el orden deseado
-        orden_cols = [
-            'SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 
-            'AMAZON', 'ENVIO', '% FEE', 'FEE $', 'RET IVA', 'RET ISR', 
-            'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %'
-        ]
-        # Solo usamos las columnas que existan (por seguridad)
+        orden_cols = ['SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', '% FEE', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
         df_f = df_f[[c for c in orden_cols if c in df_f.columns]]
         
-        if bus: 
-            df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
+        if bus: df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
         
-        # --- Formato con Signos de Pesos ---
+        # --- Formato y Estilo ---
         moneda = ['COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
         formato = {c: "${:,.2f}" for c in moneda}
         formato.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
         
         st.dataframe(
-            df_f.style.format(formato, na_rep="-").applymap(color_margen, subset=['MARGEN %']), 
+            df_f.style.format(formato, na_rep="-").apply(lambda x: [estilo_semaforo(v) if x.name == 'MARGEN %' else '' for v in x], axis=0), 
             use_container_width=True, height=600, hide_index=True
         )
