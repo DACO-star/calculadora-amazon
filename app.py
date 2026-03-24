@@ -90,9 +90,10 @@ else:
             p_sugerido = 0.0
             if c_usd_in > 0:
                 costo_mx = c_usd_in * TIPO_CAMBIO
-                tax_factor = (0.08 + 0.025) / 1.16
-                divisor = 1 - (fe_input/100) - tax_factor - 0.10
-                p_sugerido = (costo_mx + env_in) / divisor
+               tax_factor = (0.08 + 0.025) / 1.16
+divisor = 1 - (fe_input/100) - tax_factor
+# Aplicamos el 10% de ganancia sobre el costo antes de dividir por los gastos
+p_sugerido = ( (costo_mx * 1.10) + env_in ) / divisor
             
             pr = c3.number_input("Precio Venta Final (MXN)", value=float(p_sugerido), format="%.2f")
             
