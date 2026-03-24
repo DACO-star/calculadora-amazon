@@ -23,7 +23,7 @@ def calcular_detallado(p_amz, c_usd, t_c, p_fee, env):
         costo_mxn = c_usd * t_c
         dinero_fee = p_amz * (p_fee / 100)
         base_gravable = p_amz / 1.16
-        retenciones = base_gravable * 0.105 # IVA 8% + ISR 2.5%
+        retenciones = base_gravable * 0.105 
         neto = p_amz - dinero_fee - abs(env) - retenciones
         utilidad = neto - costo_mxn
         margen = (utilidad / neto) * 100 if neto > 0 else 0
@@ -31,7 +31,7 @@ def calcular_detallado(p_amz, c_usd, t_c, p_fee, env):
     except: return pd.Series([0, 0, 0, 0, 0])
 
 def color_margen(val):
-    if val > 10: color = '#1a4d1a' # Verde
+    if val > 10: color = '#1a4d1a' # Verde Dacocel
     elif val > 5: color = '#5e541e' # Amarillo
     else: color = '#551a1a' # Rojo
     return f'background-color: {color}; color: white'
@@ -61,80 +61,87 @@ else:
     st.title("📱 Panel Maestro Dacocel")
 
     if not df_raw.empty:
-        # --- PROCESAMIENTO ---
+        # --- CÁLCULOS ---
         res = df_raw.apply(lambda r: calcular_detallado(r['AMAZON'], r['COSTO USD'], r['TIPO CAMBIO'], r['% FEE'], r['ENVIO']), axis=1)
         res.columns = ['COSTO MXN', 'FEE $', 'NETO', 'UTILIDAD', 'MARGEN %']
         df_final = pd.concat([df_raw, res], axis=1)
         cols_v3 = ['SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'AMAZON', 'ENVIO', '% FEE', 'MARGEN %']
 
-        # --- 1. SIMULADOR CON SEMÁFORO ---
-        st.subheader("1. Inventario y Simulación")
-        # Mostramos la tabla con colores para el jefe
+        # --- 1. VISTA DE SEMÁFORO (JEFE) ---
+        st.subheader("1. Estado Actual de Inventario")
         st.dataframe(
             df_final[cols_v3].style.applymap(color_margen, subset=['MARGEN %']).format({
                 "COSTO USD": "${:.2f}", "AMAZON": "${:.2f}", "ENVIO": "${:.2f}", 
-                "MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%"
+                "MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%", "TIPO CAMBIO": "{:.2f}"
             }), use_container_width=True, hide_index=True
         )
 
-        # Editor para cambios rápidos
-        st.write("🔧 **Edición Rápida de Valores:**")
-        edited_df = st.data_editor(
-            df_final[cols_v3],
-            column_config={
-                "PRODUCTO": st.column_config.TextColumn(disabled=True),
-                "SKU": st.column_config.TextColumn(disabled=True),
-                "MARGEN %": st.column_config.NumberColumn(disabled=True, format="%.2f%%"),
-            },
-            use_container_width=True, hide_index=True, key="editor_v33"
-        )
+        # --- 2. EDITOR RÁPIDO ---
+        if es_editor:
+            st.write("🔧 **Edición de Valores (Recuerda Guardar):**")
+            edited_df = st.data_editor(
+                df_final[cols_v3],
+                column_config={
+                    "PRODUCTO": st.column_config.TextColumn(disabled=True),
+                    "SKU": st.column_config.TextColumn(disabled=True),
+                    "MARGEN %": st.column_config.NumberColumn(disabled=True, format="%.2f%%"),
+                },
+                use_container_width=True, hide_index=True, key="editor_v34"
+            )
 
-        if es_editor and st.button("🚀 GUARDAR TODO EN NUBE"):
-            for i, row in edited_df.iterrows():
-                # Actualizamos las 5 columnas editables en el Sheet (C, D, E, F, G)
-                ws.update(f'C{i+2}:G{i+2}', [[row['COSTO USD'], row['AMAZON'], row['ENVIO'], row['% FEE'], row['TIPO CAMBIO']]])
-            st.success("Dacocel Actualizado."); st.rerun()
+            if st.button("🚀 GUARDAR TODO EN GOOGLE SHEETS"):
+                with st.spinner("Sincronizando..."):
+                    for i, row in edited_df.iterrows():
+                        ws.update(f'C{i+2}:G{i+2}', [[row['COSTO USD'], row['AMAZON'], row['ENVIO'], row['% FEE'], row['TIPO CAMBIO']]])
+                    st.success("¡Datos guardados!"); st.rerun()
 
         st.divider()
 
-        # --- 2. GESTIÓN POR PESTAÑAS ---
+        # --- 3. GESTIÓN POR PESTAÑAS (FIXED) ---
         if es_editor:
-            st.subheader("2. Herramientas de Gestión")
-            t1, t2, t3, t4 = st.tabs(["➕ Nuevo", "✏️ Borrar", "📂 Carga Masiva", "📄 Reportes"])
+            st.subheader("2. Herramientas de Gestión Dacocel")
+            t1, t2, t3, t4 = st.tabs(["➕ Nuevo", "🗑️ Eliminar", "📂 Carga Bulk", "📄 Reportes"])
             
             with t1:
-                with st.form("n"):
-                    sk = st.text_input("SKU").upper()
-                    no = st.text_input("Nombre")
+                with st.form("nuevo_p"):
+                    sk = st.text_input("SKU")
+                    no = st.text_input("Nombre Modelo")
                     c1, c2 = st.columns(2)
                     cos = c1.number_input("Costo USD")
-                    pre = c2.number_input("Precio Amazon")
+                    tc = c2.number_input("TC", value=18.50)
                     if st.form_submit_button("Registrar"):
-                        ws.append_row([sk, no.upper(), cos, pre, 0, 10, 18.5])
+                        ws.append_row([sk.upper(), no.upper(), cos, 0, 0, 10, tc])
                         st.rerun()
             
             with t2:
-                sel = st.selectbox("Elegir para eliminar", df_raw['SKU'] + " - " + df_raw['PRODUCTO'])
-                if st.button("🗑️ Confirmar Eliminación"):
-                    idx = df_raw[df_raw['SKU'] == sel.split(" - ")[0]].index[0]
-                    ws.delete_rows(int(idx + 2)); st.rerun()
+                # FIX: Convertimos a string para evitar el TypeError
+                opciones = df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'].astype(str)
+                sel = st.selectbox("Elegir producto para eliminar", opciones)
+                if st.button("Confirmar Eliminación", type="primary"):
+                    sku_sel = sel.split(" - ")[0]
+                    idx = df_raw[df_raw['SKU'].astype(str) == sku_sel].index[0]
+                    ws.delete_rows(int(idx + 2))
+                    st.success(f"Eliminado {sku_sel}")
+                    st.rerun()
 
             with t3:
-                st.write("### Sistema Bulk")
+                st.write("### Carga Masiva")
                 if st.button("⬇️ Descargar Plantilla Excel"):
                     plantilla = pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO'])
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: plantilla.to_excel(w, index=False)
                     st.download_button("Click para descargar", buf.getvalue(), "plantilla_dacocel.xlsx")
-                f = st.file_uploader("Subir archivo lleno", type=['xlsx'])
+                st.file_uploader("Subir archivo (XLSX)", type=['xlsx'])
 
             with t4:
-                if st.button("📄 Generar Reporte PDF de Inventario"):
+                if st.button("📄 Generar Reporte PDF"):
                     pdf = FPDF()
                     pdf.add_page()
-                    pdf.set_font("Arial", 'B', 16)
-                    pdf.cell(190, 10, "REPORTE DE INVENTARIO DACOCEL", 0, 1, 'C')
+                    pdf.set_font("Arial", 'B', 14)
+                    pdf.cell(190, 10, "INVENTARIO DACOCEL", 0, 1, 'C')
                     pdf.set_font("Arial", size=10)
                     for i, r in df_final.iterrows():
-                        pdf.cell(190, 8, f"{r['SKU']} - {r['PRODUCTO']} | Margen: {r['MARGEN %']:.2f}%", 0, 1)
-                    st.download_button("Descargar PDF", pdf.output(dest='S'), "Reporte_Dacocel.pdf")
+                        pdf.cell(190, 8, f"{r['SKU']} | {r['PRODUCTO']} | Margen: {r['MARGEN %']:.2f}%", 0, 1)
+                    st.download_button("Descargar Reporte", pdf.output(dest='S'), "Reporte_Dacocel.pdf")
+    else:
+        st.warning("No hay datos en Dacocel.")
