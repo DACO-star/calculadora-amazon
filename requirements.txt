@@ -1,3 +1,7 @@
+streamlit
 pandas
 gspread
+google-auth
+xlsxwriter
+openpyxl
 streamlit>=1.31.0
