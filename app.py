@@ -3,8 +3,8 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- CalcuAMZ ver 1.2 ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.2")
+# --- CalcuAMZ ver 1.3 ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.3")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -18,15 +18,24 @@ def conectar():
     return gspread.authorize(creds).open_by_key("1mF-9Ayv95PJmk4v8PrIDHf2-lRnHFZd5WOxQ__cb3Ss").sheet1
 
 def calcular_detallado(r):
-    c_usd = float(r.get('COSTO USD', 0)); p_amz = float(r.get('AMAZON', 0))
-    p_fee = float(r.get('% FEE', 0)); env = float(r.get('ENVIO', 0))
+    c_usd = float(r.get('COSTO USD', 0))
+    p_amz = float(r.get('AMAZON', 0))
+    p_fee = float(r.get('% FEE', 0))
+    env = float(r.get('ENVIO', 0))
+    
     costo_mxn = c_usd * TIPO_CAMBIO
     dinero_fee = p_amz * (p_fee / 100)
     base_gravable = p_amz / 1.16
-    ret_iva, ret_isr = base_gravable * 0.08, base_gravable * 0.025
+    ret_iva = base_gravable * 0.08
+    ret_isr = base_gravable * 0.025
+    
     neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = neto - costo_mxn
-    margen = (utilidad / neto) * 100 if neto > 0 else 0
+    
+    # --- CAMBIO CLAVE: Margen sobre Precio de Venta ---
+    # Esto hace que coincida con el Asistente de Precio Objetivo
+    margen = (utilidad / p_amz) * 100 if p_amz > 0 else 0
+    
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
 if 'auth' not in st.session_state: st.session_state.auth = False
@@ -55,7 +64,7 @@ else:
     t1, t2 = st.tabs(["➕ Agregar con Asistente", "✏️ Editar / Borrar"])
 
     with t1:
-        st.subheader("Asistente de Precio Objetivo (Margen 10% Neto)")
+        st.subheader("Asistente de Precio Objetivo (Margen 10% sobre Venta)")
         with st.form("nuevo"):
             c1, c2, c3 = st.columns(3)
             sk = c1.text_input("SKU")
@@ -65,10 +74,7 @@ else:
             c_usd_in = c1.number_input("Costo Producto (USD)", format="%.2f", step=1.0)
             env_in = c2.number_input("Envío FBA (MXN)", format="%.2f", step=5.0)
             
-            # --- LÓGICA DEL ASISTENTE EN TIEMPO REAL ---
-            # Retenciones aproximadas sobre el precio final: (8%+2.5%)/1.16 = 9.05%
-            # Margen deseado: 10%
-            # Divisor = 1 - Fee - Impuestos - Margen
+            # Lógica de asistente (10% de margen neto sobre el precio de venta)
             p_sugerido = 0.0
             if c_usd_in > 0:
                 costo_mx = c_usd_in * TIPO_CAMBIO
@@ -76,12 +82,12 @@ else:
                 divisor = 1 - (fe_input/100) - tax_factor - 0.10
                 p_sugerido = (costo_mx + env_in) / divisor
             
-            pr = c3.number_input("Precio Venta Final (MXN)", value=float(p_sugerido), format="%.2f", help="Sugerencia automática para 10% de margen")
+            pr = c3.number_input("Precio Venta Final (MXN)", value=float(p_sugerido), format="%.2f")
             
             if st.form_submit_button("Guardar Producto"):
                 if sk and no and pr > 0:
                     ws.append_row([sk.upper(), no.upper(), c_usd_in, pr, env_in, fe_input])
-                    st.success(f"¡Guardado! Precio sugerido aplicado: ${p_sugerido:,.2f}")
+                    st.success(f"¡Guardado!")
                     st.rerun()
 
     with t2:
@@ -106,7 +112,7 @@ else:
 
     st.divider()
     if not df_raw.empty:
-        busqueda = st.text_input("🔍 Buscador rápido", "").strip().upper()
+        busqueda = st.text_input("🔍 Buscador", "").strip().upper()
         res = df_raw.apply(calcular_detallado, axis=1)
         res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
         df_f = pd.concat([df_raw, res], axis=1)
@@ -115,8 +121,8 @@ else:
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Items", len(df_f))
-        c2.metric("Utilidad", f"${df_f['UTILIDAD'].sum():,.2f}")
-        c3.metric("Margen Prom.", f"{df_f['MARGEN %'].mean():,.2f}%")
+        c2.metric("Utilidad Total", f"${df_f['UTILIDAD'].sum():,.2f}")
+        c3.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():,.2f}%")
 
         m_cols = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
         st.dataframe(df_f.style.format({c: "${:,.2f}" for c in m_cols} | {"MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%"}), use_container_width=True, height=500)
