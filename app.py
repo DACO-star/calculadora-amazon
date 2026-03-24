@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+import io
 
-# --- CalcuAMZ ver 1.8 (Formato con Símbolos Correctos) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.8")
+# --- CalcuAMZ ver 1.9 (Plantilla Descargable + Alertas VisualES) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.9")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -41,6 +42,11 @@ def calcular_detallado(r):
     margen = (utilidad / neto) * 100 if neto > 0 else 0
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
+# Función para resaltar márgenes negativos
+def color_margen(val):
+    color = 'red' if val < 0 else 'white'
+    return f'color: {color}'
+
 if 'auth' not in st.session_state: 
     st.session_state.auth = False
 
@@ -60,7 +66,7 @@ else:
     except: st.error("Error de conexión"); st.stop()
 
     st.title("📦 Gestión de Inventario")
-    t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga con Auto-Precio"])
+    t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga Masiva"])
 
     with t1:
         st.subheader("Asistente de Registro")
@@ -69,7 +75,7 @@ else:
             no = st.text_input("Nombre Producto")
             c1, c2 = st.columns(2)
             c_usd_in = c1.number_input("Costo USD", format="%.2f")
-            fe_input = c2.number_input("% Fee Amazon", value=10.0)
+            fe_input = c2.number_input("% Fee Amazon", value=15.0) # Ajustado a 15% común
             env_in = c1.number_input("Envío FBA (MXN)", value=0.0)
             
             pr_sug = calcular_precio_sugerido(c_usd_in, fe_input, env_in)
@@ -101,21 +107,42 @@ else:
                 ws.delete_rows(int(idx + 2)); st.rerun()
 
     with t3:
-        st.subheader("Carga Masiva con Cálculo Automático")
-        archivo = st.file_uploader("Subir Excel/CSV del proveedor", type=['xlsx', 'csv'])
+        st.subheader("Subida Masiva")
+        
+        # --- GENERADOR DE PLANTILLA ---
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', '% FEE', 'ENVIO']).to_excel(writer, index=False)
+        
+        st.download_button(
+            label="📥 Descargar Plantilla Excel",
+            data=buffer.getvalue(),
+            file_name="plantilla_proveedor_amz.xlsx",
+            mime="application/vnd.ms-excel"
+        )
+        
+        st.divider()
+        archivo = st.file_uploader("Subir Plantilla llena", type=['xlsx', 'csv'])
         if archivo:
             df_b = pd.read_excel(archivo) if archivo.name.endswith('xlsx') else pd.read_csv(archivo)
             df_b.columns = [str(c).strip().upper() for c in df_b.columns]
+            
             if all(c in df_b.columns for c in ['PRODUCTO', 'COSTO USD']):
-                if 'SKU' not in df_b.columns: df_b['SKU'] = [f"B-{i+len(df_raw)+1:03d}" for i in range(len(df_b))]
+                # Rellenar faltantes
+                if 'SKU' not in df_b.columns or df_b['SKU'].isnull().all():
+                    df_b['SKU'] = [f"B-{i+len(df_raw)+1:03d}" for i in range(len(df_b))]
                 if 'ENVIO' not in df_b.columns: df_b['ENVIO'] = 0.0
-                if '% FEE' not in df_b.columns: df_b['% FEE'] = 10.0
+                if '% FEE' not in df_b.columns: df_b['% FEE'] = 15.0
+                
+                # Cálculo automático de precio de venta
                 df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r['% FEE'], r['ENVIO']), axis=1)
-                st.write("Vista previa:")
+                
+                st.write("Vista previa (Precios calculados al 10%):")
                 st.dataframe(df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].head())
-                if st.button("🚀 Subir a Sheets"):
+                
+                if st.button("🚀 Procesar y Guardar en Sheets"):
                     ws.append_rows(df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].values.tolist())
-                    st.success("¡Cargado!"); st.rerun()
+                    st.success("¡Carga masiva completada!"); st.rerun()
 
     st.divider()
     if not df_raw.empty:
@@ -128,18 +155,16 @@ else:
             df_f = df_f[df_f['SKU'].astype(str).str.contains(busqueda) | df_f['PRODUCTO'].astype(str).str.contains(busqueda)]
         
         m1, m2 = st.columns(2)
-        m1.metric("Productos", len(df_f))
+        m1.metric("Productos Registrados", len(df_f))
         m2.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():.2f}%")
         
-        # --- FORMATO CON SIGNOS RE-ACTIVADO ---
+        # Formateo con colores y símbolos
         cols_moneda = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
-        cols_porcentaje = ['MARGEN %','% FEE']
-        
         formato = {c: "${:,.2f}" for c in cols_moneda}
-        formato.update({c: "{:.2f}%" for c in cols_porcentaje})
+        formato.update({c: "{:.2f}%" for c in ['MARGEN %','% FEE']})
         
         st.dataframe(
-            df_f.style.format(formato), 
+            df_f.style.format(formato).applymap(color_margen, subset=['MARGEN %']), 
             use_container_width=True, 
-            height=500
+            height=600
         )
