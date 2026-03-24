@@ -3,8 +3,8 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- CalcuAMZ ver 1.7 (Simulador Bulk Automático) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.7")
+# --- CalcuAMZ ver 1.8 (Formato con Símbolos Correctos) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.8")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -18,7 +18,6 @@ def conectar():
     return gspread.authorize(creds).open_by_key("1mF-9Ayv95PJmk4v8PrIDHf2-lRnHFZd5WOxQ__cb3Ss").sheet1
 
 def calcular_precio_sugerido(costo_usd, fee_pct, envio_fba):
-    """Calcula el precio para obtener 10% de margen sobre el neto"""
     if costo_usd <= 0: return 0.0
     costo_mx = costo_usd * TIPO_CAMBIO
     tax_factor = (0.08 + 0.025) / 1.16
@@ -80,7 +79,7 @@ else:
                 if no:
                     f_sku = sk_input if sk_input else f"AUTO-{len(df_raw)+1:03d}"
                     ws.append_row([f_sku, no.upper(), c_usd_in, pr, env_in, fe_input])
-                    st.success("Guardado!"); st.rerun()
+                    st.success("¡Guardado!"); st.rerun()
 
     with t2:
         if not df_raw.empty:
@@ -103,43 +102,4 @@ else:
 
     with t3:
         st.subheader("Carga Masiva con Cálculo Automático")
-        st.write("Sube tu lista y la app calculará el precio necesario para ganar el 10%.")
-        archivo = st.file_uploader("Subir Excel/CSV del proveedor", type=['xlsx', 'csv'])
-        
-        if archivo:
-            df_b = pd.read_excel(archivo) if archivo.name.endswith('xlsx') else pd.read_csv(archivo)
-            df_b.columns = [str(c).strip().upper() for c in df_b.columns]
-            
-            # Columnas mínimas requeridas del proveedor
-            if all(c in df_b.columns for c in ['PRODUCTO', 'COSTO USD']):
-                if 'SKU' not in df_b.columns: df_b['SKU'] = [f"B-{i+len(df_raw)+1:03d}" for i in range(len(df_b))]
-                if 'ENVIO' not in df_b.columns: df_b['ENVIO'] = 0.0
-                if '% FEE' not in df_b.columns: df_b['% FEE'] = 10.0
-                
-                # LA MAGIA: Calculamos el precio AMAZON para cada fila
-                df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r['% FEE'], r['ENVIO']), axis=1)
-                
-                st.write("Vista previa con precios calculados:")
-                st.dataframe(df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].head())
-                
-                if st.button("🚀 Subir todo a la base de datos"):
-                    filas = df_b[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']].values.tolist()
-                    ws.append_rows(filas)
-                    st.success(f"¡{len(filas)} productos procesados y guardados!")
-                    st.rerun()
-            else:
-                st.error("El archivo debe tener al menos: PRODUCTO y COSTO USD")
-
-    st.divider()
-    if not df_raw.empty:
-        busqueda = st.text_input("🔍 Buscar...", "").strip().upper()
-        res = df_raw.apply(calcular_detallado, axis=1)
-        res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
-        df_f = pd.concat([df_raw, res], axis=1)
-        if busqueda:
-            df_f = df_f[df_f['SKU'].astype(str).str.contains(busqueda) | df_f['PRODUCTO'].astype(str).str.contains(busqueda)]
-        
-        c1, c2 = st.columns(2)
-        c1.metric("Items", len(df_f))
-        c2.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():,.2f}%")
-        st.dataframe(df_f.style.format({c: "${:,.2f}" for c in res.columns[:-1]} | {"MARGEN %": "{:.2f}%"}), use_container_width=True)
+        archivo = st.file_uploader("Subir Excel/CSV
