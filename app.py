@@ -3,7 +3,6 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import io
-from fpdf import FPDF
 
 # --- CONFIGURACIÓN DACOCEL ---
 st.set_page_config(layout="wide", page_title="Dacocel - Gestión", page_icon="📱")
@@ -72,38 +71,46 @@ else:
         res.columns = ['COSTO MXN', 'FEE $', 'NETO', 'UTILIDAD', 'MARGEN %']
         df_final = pd.concat([df_raw, res], axis=1)
         
-        # Orden de columnas v3.0 (Margen al final)
-        cols_v3 = ['SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'AMAZON', 'ENVIO', '% FEE', 'MARGEN %']
+        # Orden de columnas v3.1
+        cols_v3 = ['SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'AMAZON', 'ENVIO', '% FEE', 'FEE $', 'MARGEN %']
         
-        # --- VISTA PRINCIPAL (Simulador/Tabla) ---
+        # --- VISTA PRINCIPAL (Simulador con Costo y Amazon Editables) ---
         st.subheader("1. Inventario y Simulación")
-        # En la v3.0 el editor es para cambios rápidos que se guardan con el botón
+        st.info("💡 Puedes editar directamente el **COSTO USD** y el **PRECIO AMAZON**. No olvides guardar los cambios.")
+        
         edited_df = st.data_editor(
             df_final[cols_v3],
             column_config={
                 "PRODUCTO": st.column_config.TextColumn(width="large", disabled=True),
-                "AMAZON": st.column_config.NumberColumn("AMAZON", format="$%.2f"),
+                "COSTO USD": st.column_config.NumberColumn("COSTO USD", format="$%.2f"),
+                "AMAZON": st.column_config.NumberColumn("PRECIO AMAZON", format="$%.2f"),
+                "ENVIO": st.column_config.NumberColumn("ENVÍO", format="$%.2f", disabled=True),
+                "% FEE": st.column_config.NumberColumn("% FEE", format="%.2f%%", disabled=True),
+                "FEE $": st.column_config.NumberColumn("FEE $", format="$%.2f", disabled=True),
                 "MARGEN %": st.column_config.NumberColumn("MARGEN %", format="%.2f%%", disabled=True),
                 "SKU": st.column_config.TextColumn(disabled=True),
-                "COSTO USD": st.column_config.NumberColumn(disabled=True, format="$%.2f"),
-                "TIPO CAMBIO": st.column_config.NumberColumn(disabled=True),
+                "TIPO CAMBIO": st.column_config.NumberColumn("TIPO CAMBIO", disabled=True),
             },
-            use_container_width=True, hide_index=True, key="editor_v3_dacocel"
+            use_container_width=True, hide_index=True, key="editor_v31_dacocel"
         )
 
         if es_editor:
-            if st.button("🚀 GUARDAR CAMBIOS DE PRECIO"):
-                for i, row in edited_df.iterrows():
-                    if float(df_raw.at[i, 'AMAZON']) != float(row['AMAZON']):
-                        ws.update_cell(i + 2, 4, float(row['AMAZON']))
-                st.success("Sincronizado con Google Sheets."); st.rerun()
+            if st.button("🚀 GUARDAR CAMBIOS (NUBE)"):
+                with st.spinner("Actualizando Dacocel..."):
+                    for i, row in edited_df.iterrows():
+                        # Verificar si cambió el Precio Amazon (Col 4 -> D) o el Costo USD (Col 3 -> C)
+                        if float(df_raw.at[i, 'AMAZON']) != float(row['AMAZON']):
+                            ws.update_cell(i + 2, 4, float(row['AMAZON']))
+                        if float(df_raw.at[i, 'COSTO USD']) != float(row['COSTO USD']):
+                            ws.update_cell(i + 2, 3, float(row['COSTO USD']))
+                    st.success("Cambios sincronizados correctamente."); st.rerun()
 
         st.divider()
 
-        # --- SECCIÓN DE GESTIÓN (Tus Herramientas) ---
+        # --- SECCIÓN DE GESTIÓN ---
         if es_editor:
             st.subheader("2. Herramientas de Gestión")
-            t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar/Borrar", "📂 Carga Masiva"])
+            t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar Detallado", "📂 Carga Masiva"])
             
             with t1:
                 with st.form("nuevo"):
@@ -113,7 +120,7 @@ else:
                     cos = c1.number_input("Costo USD", format="%.2f")
                     tc = c2.number_input("TC", value=18.50)
                     fe = c1.number_input("% Fee", value=10.0)
-                    env = c2.number_input("Envío FBA", value=0.0)
+                    env = c2.number_input("Envío", value=0.0)
                     if st.form_submit_button("Guardar en Dacocel"):
                         ws.append_row([sk if sk else f"D-{len(df_raw)+1}", no.upper(), cos, 0, env, fe, tc])
                         st.rerun()
@@ -126,13 +133,14 @@ else:
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
                     ecos = st.number_input("Costo USD", value=float(curr['COSTO USD']))
                     epre = st.number_input("Precio Amazon", value=float(curr['AMAZON']))
-                    if st.form_submit_button("Actualizar Producto"):
-                        ws.update(f'A{idx_sel+2}:G{idx_sel+2}', [[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], curr['TIPO CAMBIO']]])
+                    etc = st.number_input("Tipo de Cambio", value=float(curr['TIPO CAMBIO']))
+                    if st.form_submit_button("Actualizar Todo"):
+                        ws.update(f'A{idx_sel+2}:G{idx_sel+2}', [[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], etc]])
                         st.rerun()
-                if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx_sel + 2)); st.rerun()
+                if st.button("🗑️ Eliminar Producto"): ws.delete_rows(int(idx_sel + 2)); st.rerun()
 
             with t3:
-                st.info("Utiliza esta sección para subir archivos CSV o Excel en lote.")
-                f_bulk = st.file_uploader("Archivo de inventario", type=['xlsx', 'csv'])
+                st.info("Sección para actualización por lote.")
+                f_bulk = st.file_uploader("Subir Inventario", type=['xlsx', 'csv'])
     else:
         st.warning("No hay datos en la base de Dacocel.")
