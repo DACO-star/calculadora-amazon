@@ -5,8 +5,8 @@ from google.oauth2.service_account import Credentials
 import io
 from fpdf import FPDF
 
-# --- CalcuAMZ v2.2.1 (Formato de Dólar Corregido) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ v2.2.1")
+# --- CalcuAMZ v2.3 (Columnas Reordenadas) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ v2.3")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -41,7 +41,6 @@ def calcular_detallado(r):
     neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = neto - costo_mxn
     margen = (utilidad / neto) * 100 if neto > 0 else 0
-    # Eliminamos TC de aquí para no duplicar columnas
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
 def color_margen(val):
@@ -67,7 +66,7 @@ else:
         st.header("💵 Dólar Hoy")
         dolar_actual = st.number_input("Tipo de Cambio para NUEVAS cargas", value=18.00, step=0.01)
 
-    st.title("📦 Gestión v2.2.1")
+    st.title("📦 Gestión v2.3")
     t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga Masiva"])
 
     with t1:
@@ -120,15 +119,27 @@ else:
     st.divider()
     if not df_raw.empty:
         bus = st.text_input("🔍 Buscar").strip().upper()
-        # Aquí calculamos pero ya no añadimos la columna TC duplicada
         res = df_raw.apply(calcular_detallado, axis=1)
         res.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
+        
+        # --- REORDENAMIENTO DE COLUMNAS ---
+        # Unimos las bases
         df_f = pd.concat([df_raw, res], axis=1)
         
-        if bus: df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
+        # Definimos el orden deseado
+        orden_cols = [
+            'SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 
+            'AMAZON', 'ENVIO', '% FEE', 'FEE $', 'RET IVA', 'RET ISR', 
+            'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %'
+        ]
+        # Solo usamos las columnas que existan (por seguridad)
+        df_f = df_f[[c for c in orden_cols if c in df_f.columns]]
         
-        # --- Formato con Signos de Pesos (Incluyendo TIPO CAMBIO) ---
-        moneda = ['COSTO USD', 'AMAZON', 'ENVIO', 'TIPO CAMBIO', 'COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
+        if bus: 
+            df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
+        
+        # --- Formato con Signos de Pesos ---
+        moneda = ['COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
         formato = {c: "${:,.2f}" for c in moneda}
         formato.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
         
