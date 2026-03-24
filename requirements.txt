@@ -4,4 +4,5 @@ gspread
 google-auth
 xlsxwriter
 openpyxl
+fpdf
 streamlit>=1.31.0
