@@ -60,7 +60,7 @@ else:
     st.title("📦 Gestión de Inventario")
     t1, t2 = st.tabs(["➕ Agregar con Asistente", "✏️ Editar / Borrar"])
 
-   with t1:
+       with t1:
         st.subheader("Asistente de Registro")
         
         # --- 1. LÓGICA DE SKU AUTOMÁTICO Y DUPLICADOS ---
