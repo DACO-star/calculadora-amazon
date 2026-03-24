@@ -148,7 +148,7 @@ else:
         # Visualización de tabla
         money_cols = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
         st.dataframe(
-            df_mostrar.style.format({c: "${:,.2f}" for c in money_cols} | {"MARGEN %": "{:.2f}%"}),
+            df_mostrar.style.format({c: "${:,.2f}" for c in money_cols} | {"MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%"}),
             use_container_width=True,
             height=600
         )
