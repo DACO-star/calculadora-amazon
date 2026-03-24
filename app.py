@@ -118,7 +118,6 @@ else:
         
         m1, m2, m3 = st.columns(3)
         m1.metric("Items", len(df_f))
-        m2.metric("Utilidad Total", f"${df_f['UTILIDAD'].sum():,.2f}")
         m3.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():,.2f}%")
 
         m_cols = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
