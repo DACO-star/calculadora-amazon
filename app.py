@@ -3,8 +3,8 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
-# --- CalcuAMZ ver 1.4 ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.4")
+# --- CalcuAMZ ver 1.5 ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ ver 1.5")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -29,7 +29,6 @@ def calcular_detallado(r):
     ret_isr = base_gravable * 0.025
     neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
     utilidad = neto - costo_mxn
-    # Margen sobre el NETO (Coherente con tu tabla)
     margen = (utilidad / neto) * 100 if neto > 0 else 0
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
@@ -60,20 +59,19 @@ else:
     st.title("📦 Gestión de Inventario")
     t1, t2 = st.tabs(["➕ Agregar con Asistente", "✏️ Editar / Borrar"])
 
-       with t1:
+    with t1:
         st.subheader("Asistente de Registro")
         
-        # --- 1. LÓGICA DE SKU AUTOMÁTICO Y DUPLICADOS ---
-        sk_input = st.text_input("SKU (Dejar vacío para automático)").strip().upper()
+        # Campo de SKU fuera del form para validación en tiempo real
+        sk_input = st.text_input("SKU (Vacío para automático)").strip().upper()
         
-        # Verificar si el SKU ya existe en el DataFrame actual
         existe_sku = False
         if sk_input and not df_raw.empty:
             existe_sku = sk_input in df_raw['SKU'].astype(str).values
 
         if existe_sku:
-            st.error(f"⚠️ El SKU **{sk_input}** ya existe. Por favor usa uno diferente o edita el producto en la otra pestaña.")
-        
+            st.error(f"❌ El SKU **{sk_input}** ya existe. Elige otro.")
+
         with st.form("nuevo"):
             c1, c2, c3 = st.columns(3)
             no = c1.text_input("Nombre Producto")
@@ -81,7 +79,6 @@ else:
             c_usd_in = c3.number_input("Costo Producto (USD)", format="%.2f", step=1.0)
             env_in = c1.number_input("Envío FBA (MXN)", format="%.2f", step=5.0)
             
-            # Lógica de precio objetivo (v1.2)
             p_sugerido = 0.0
             if c_usd_in > 0:
                 costo_mx = c_usd_in * TIPO_CAMBIO
@@ -91,23 +88,17 @@ else:
             
             pr = c2.number_input("Precio Venta Final (MXN)", value=float(p_sugerido), format="%.2f")
             
-            # --- 2. BOTÓN CON VALIDACIÓN ---
-            btn_guardar = st.form_submit_button("Guardar Producto", disabled=existe_sku)
-            
-            if btn_guardar:
+            if st.form_submit_button("Guardar Producto", disabled=existe_sku):
                 if not no:
-                    st.warning("El nombre del producto es obligatorio.")
+                    st.warning("El nombre es obligatorio.")
                 else:
-                    # Generar SKU automático si está vacío
                     final_sku = sk_input
                     if not final_sku:
-                        # Buscar el número más alto de los SKU que empiezan con AUTO-
                         skus_auto = [s for s in df_raw['SKU'].astype(str) if s.startswith("AUTO-")]
-                        num = len(skus_auto) + 1
-                        final_sku = f"AUTO-{num:03d}"
+                        final_sku = f"AUTO-{len(skus_auto) + 1:03d}"
                     
                     ws.append_row([final_sku, no.upper(), c_usd_in, pr, env_in, fe_input])
-                    st.success(f"¡Guardado! SKU asignado: {final_sku}")
+                    st.success(f"¡Guardado! SKU: {final_sku}")
                     st.rerun()
 
     with t2:
@@ -139,9 +130,9 @@ else:
         if busqueda:
             df_f = df_f[df_f['SKU'].astype(str).str.contains(busqueda) | df_f['PRODUCTO'].astype(str).str.contains(busqueda)]
         
-        m1, m2, m3 = st.columns(3)
+        m1, m2 = st.columns(2)
         m1.metric("Items", len(df_f))
-        m3.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():,.2f}%")
+        m2.metric("Margen Promedio", f"{df_f['MARGEN %'].mean():,.2f}%")
 
         m_cols = ['COSTO USD','AMAZON','ENVIO','COSTO MXN','FEE $','RET IVA','RET ISR','NETO RECIBIDO','UTILIDAD']
         st.dataframe(df_f.style.format({c: "${:,.2f}" for c in m_cols} | {"MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%"}), use_container_width=True, height=500)
