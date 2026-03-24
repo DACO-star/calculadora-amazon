@@ -48,7 +48,7 @@ def estilo_filas(row):
     # 1. Estilo para la columna AMAZON (Naranja Amazon)
     if 'AMAZON' in row.index:
         idx_amz = row.index.get_loc('AMAZON')
-        estilos[idx_amz] = 'background-color: #FF9900; color: black; font-weight: bold;'
+        estilos[idx_amz] = 'background-color: #a65d00; color: black; font-weight: bold;'
     
     # 2. Estilo para la columna MARGEN % (Semáforo)
     if 'MARGEN %' in row.index:
