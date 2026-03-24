@@ -60,31 +60,54 @@ else:
     st.title("📦 Gestión de Inventario")
     t1, t2 = st.tabs(["➕ Agregar con Asistente", "✏️ Editar / Borrar"])
 
-    with t1:
-        st.subheader("Asistente de Precio Objetivo (10% sobre el Neto Recibido)")
+   with t1:
+        st.subheader("Asistente de Registro")
+        
+        # --- 1. LÓGICA DE SKU AUTOMÁTICO Y DUPLICADOS ---
+        sk_input = st.text_input("SKU (Dejar vacío para automático)").strip().upper()
+        
+        # Verificar si el SKU ya existe en el DataFrame actual
+        existe_sku = False
+        if sk_input and not df_raw.empty:
+            existe_sku = sk_input in df_raw['SKU'].astype(str).values
+
+        if existe_sku:
+            st.error(f"⚠️ El SKU **{sk_input}** ya existe. Por favor usa uno diferente o edita el producto en la otra pestaña.")
+        
         with st.form("nuevo"):
             c1, c2, c3 = st.columns(3)
-            sk = c1.text_input("SKU")
-            no = c2.text_input("Nombre Producto")
-            fe_input = c3.number_input("% Fee Amazon", value=10.0, step=0.5)
-            c_usd_in = c1.number_input("Costo Producto (USD)", format="%.2f", step=1.0)
-            env_in = c2.number_input("Envío FBA (MXN)", format="%.2f", step=5.0)
+            no = c1.text_input("Nombre Producto")
+            fe_input = c2.number_input("% Fee Amazon", value=10.0, step=0.5)
+            c_usd_in = c3.number_input("Costo Producto (USD)", format="%.2f", step=1.0)
+            env_in = c1.number_input("Envío FBA (MXN)", format="%.2f", step=5.0)
             
-            # --- LÓGICA DE PRECIO OBJETIVO CORREGIDA ---
+            # Lógica de precio objetivo (v1.2)
             p_sugerido = 0.0
             if c_usd_in > 0:
                 costo_mx = c_usd_in * TIPO_CAMBIO
                 tax_factor = (0.08 + 0.025) / 1.16
                 divisor = 1 - (fe_input/100) - tax_factor
-                # Usamos 1.1112 para que la utilidad sea exactamente el 10% del NETO
                 p_sugerido = ((costo_mx * 1.1112) + env_in) / divisor
             
-            pr = c3.number_input("Precio Venta Sugerido (MXN)", value=float(p_sugerido), format="%.2f")
+            pr = c2.number_input("Precio Venta Final (MXN)", value=float(p_sugerido), format="%.2f")
             
-            if st.form_submit_button("Guardar Producto"):
-                if sk and no and pr > 0:
-                    ws.append_row([sk.upper(), no.upper(), c_usd_in, pr, env_in, fe_input])
-                    st.success("¡Guardado!")
+            # --- 2. BOTÓN CON VALIDACIÓN ---
+            btn_guardar = st.form_submit_button("Guardar Producto", disabled=existe_sku)
+            
+            if btn_guardar:
+                if not no:
+                    st.warning("El nombre del producto es obligatorio.")
+                else:
+                    # Generar SKU automático si está vacío
+                    final_sku = sk_input
+                    if not final_sku:
+                        # Buscar el número más alto de los SKU que empiezan con AUTO-
+                        skus_auto = [s for s in df_raw['SKU'].astype(str) if s.startswith("AUTO-")]
+                        num = len(skus_auto) + 1
+                        final_sku = f"AUTO-{num:03d}"
+                    
+                    ws.append_row([final_sku, no.upper(), c_usd_in, pr, env_in, fe_input])
+                    st.success(f"¡Guardado! SKU asignado: {final_sku}")
                     st.rerun()
 
     with t2:
