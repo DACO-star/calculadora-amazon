@@ -5,8 +5,8 @@ from google.oauth2.service_account import Credentials
 import io
 from fpdf import FPDF
 
-# --- CalcuAMZ v2.3.1 (Semáforo de Margen) ---
-st.set_page_config(layout="wide", page_title="CalcuAMZ v2.3.1")
+# --- CalcuAMZ v2.3.2 (Amazon Brand Style) ---
+st.set_page_config(layout="wide", page_title="CalcuAMZ v2.3.2")
 
 USUARIOS = {
     "admin": "amazon123", "dav": "ventas2026",
@@ -41,22 +41,31 @@ def calcular_detallado(r):
     margen = (utilidad / neto) * 100 if neto > 0 else 0
     return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
 
-# --- LÓGICA DE COLORES (SEMÁFORO) ---
-def estilo_semaforo(val):
-    if not isinstance(val, (int, float)): return ''
+# --- LÓGICA DE COLORES ---
+def estilo_filas(row):
+    estilos = [''] * len(row)
     
-    # Color de letra (Rojo si es negativo)
-    color_letra = 'color: #ff4b4b;' if val < 0 else 'color: white;'
+    # 1. Estilo para la columna AMAZON (Naranja Amazon)
+    if 'AMAZON' in row.index:
+        idx_amz = row.index.get_loc('AMAZON')
+        estilos[idx_amz] = 'background-color: #FF9900; color: black; font-weight: bold;'
     
-    # Color de fondo (Rangos solicitados)
-    if val <= 6.0:
-        bg = 'background-color: #551a1a;' # Rojo tenue/oscuro
-    elif 6.1 <= val <= 8.0:
-        bg = 'background-color: #5e541e;' # Amarillo tenue/mostaza
-    else: # Arriba de 8.1
-        bg = 'background-color: #1a4d1a;' # Verde tenue/bosque
+    # 2. Estilo para la columna MARGEN % (Semáforo)
+    if 'MARGEN %' in row.index:
+        val = row['MARGEN %']
+        idx_margen = row.index.get_loc('MARGEN %')
+        color_letra = 'color: #ff4b4b;' if val < 0 else 'color: white;'
         
-    return f'{color_letra} {bg}'
+        if val <= 6.0:
+            bg = 'background-color: #551a1a;' # Rojo tenue
+        elif 6.1 <= val <= 8.0:
+            bg = 'background-color: #5e541e;' # Amarillo tenue
+        else:
+            bg = 'background-color: #1a4d1a;' # Verde tenue
+        
+        estilos[idx_margen] = f'{color_letra} {bg}'
+        
+    return estilos
 
 if 'auth' not in st.session_state: st.session_state.auth = False
 
@@ -78,7 +87,7 @@ else:
         st.header("💵 Dólar Hoy")
         dolar_actual = st.number_input("Tipo de Cambio para NUEVAS cargas", value=18.00, step=0.01)
 
-    st.title("📦 Gestión v2.3.1 (Visual)")
+    st.title("📦 Gestión v2.3.2 (Amazon Edition)")
     t1, t2, t3 = st.tabs(["➕ Individual", "✏️ Editar / Borrar", "📂 Carga Masiva"])
 
     with t1:
@@ -86,12 +95,12 @@ else:
             sk = st.text_input("SKU").strip().upper()
             no = st.text_input("Nombre")
             c1, c2 = st.columns(2)
-            c_usd = c1.number_input("Costo USD", format="%.2f")
+            cos = c1.number_input("Costo USD", format="%.2f")
             fee = c2.number_input("% Fee", value=10.0)
             env = c1.number_input("Envío FBA", value=0.0)
-            pr = c2.number_input("Precio Venta", value=float(calcular_precio_sugerido(c_usd, fee, env, dolar_actual)))
+            pr = c2.number_input("Precio Venta", value=float(calcular_precio_sugerido(cos, fee, env, dolar_actual)))
             if st.form_submit_button("Guardar"):
-                ws.append_row([sk if sk else f"A-{len(df_raw)+1}", no.upper(), c_usd, pr, env, fee, dolar_actual])
+                ws.append_row([sk if sk else f"A-{len(df_raw)+1}", no.upper(), cos, pr, env, fee, dolar_actual])
                 st.rerun()
 
     with t2:
@@ -133,12 +142,11 @@ else:
         
         if bus: df_f = df_f[df_f['SKU'].astype(str).str.contains(bus) | df_f['PRODUCTO'].astype(str).str.contains(bus)]
         
-        # --- Formato y Estilo ---
         moneda = ['COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
         formato = {c: "${:,.2f}" for c in moneda}
         formato.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
         
         st.dataframe(
-            df_f.style.format(formato, na_rep="-").apply(lambda x: [estilo_semaforo(v) if x.name == 'MARGEN %' else '' for v in x], axis=0), 
+            df_f.style.format(formato, na_rep="-").apply(estilo_filas, axis=1), 
             use_container_width=True, height=600, hide_index=True
         )
