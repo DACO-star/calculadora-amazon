@@ -177,14 +177,13 @@ else:
                     st.rerun()
 
         with t3:
-            st.subheader("📦 Carga Masiva y Actualización (Bulk)")
-            st.info("💡 El Tipo de Cambio aquí se aplicará a TODO el archivo subido.")
+            st.subheader("📦 Carga Masiva y Sincronización (v4.2.7)")
+            st.info("💡 Se aplicará el TC Global y se generarán SKUs con prefijo 'M' si vienen vacíos.")
             tc_bulk = st.number_input("Dólar para esta carga (MXN)", value=18.50, format="%.2f")
             
-            # Selector de modo de carga
             modo_carga = st.radio(
-                "Modo de Carga:", 
-                ["➕ Solo Añadir (Ignorar actualizaciones)", "🔄 Actualizar Existentes y Añadir Nuevos"], 
+                "Modo de Operación:", 
+                ["➕ Solo Añadir", "🔄 Sincronizar por Nombre (Upsert)"], 
                 horizontal=True
             )
             
@@ -197,60 +196,59 @@ else:
                 pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
             cb1.download_button("📥 Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
             
-            # Subida
-            f_bulk = st.file_uploader("Subir Excel/CSV", type=['xlsx', 'csv'])
+            f_bulk = st.file_uploader("Subir archivo", type=['xlsx', 'csv'])
             
-            if f_bulk and st.button(f"🚀 Ejecutar {'Actualización' if 'Actualizar' in modo_carga else 'Carga'} con Dólar a ${tc_bulk}"):
+            if f_bulk and st.button(f"🚀 Procesar con Dólar a ${tc_bulk}"):
+                # 1. Lectura y limpieza inicial
                 df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
                 df_b.columns = [str(c).upper().strip() for c in df_b.columns]
                 df_b['TIPO CAMBIO'] = tc_bulk
                 
-                columnas = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
-                for col in columnas:
-                    if col not in df_b.columns: df_b[col] = 0
-                df_b = df_b[columnas] # Orden estricto
+                # Columnas base
+                cols_finales = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
+                for c in cols_finales:
+                    if c not in df_b.columns: df_b[c] = ""
                 
-                # MODO 1: SOLO AÑADIR
-                if modo_carga == "➕ Solo Añadir (Ignorar actualizaciones)":
+                df_b = df_b[cols_finales].fillna("")
+
+                # 2. Lógica de Autogeneración de SKU con prefijo "M"
+                conteo_actual = len(df_raw)
+                def asignar_sku_m(row, index):
+                    val = str(row['SKU']).strip()
+                    if val == "" or val.lower() == "nan":
+                        return f"M-{conteo_actual + index + 1}"
+                    return val.upper()
+
+                # Aplicamos el prefijo M a los vacíos del Excel
+                df_b['SKU'] = [asignar_sku_m(row, i) for i, row in df_b.iterrows()]
+
+                # 3. Ejecución según modo
+                if modo_carga == "➕ Solo Añadir":
                     ws.append_rows(df_b.values.tolist())
-                    st.success("¡Nuevos productos añadidos correctamente!")
+                    st.success("¡Productos añadidos con SKUs autogenerados!")
                     st.rerun()
                 
-                # MODO 2: ACTUALIZACIÓN INTELIGENTE POR NOMBRE (Upsert)
                 else:
-                    if df_raw.empty:
-                        ws.append_rows(df_b.values.tolist())
-                    else:
-                        df_actual = df_raw.copy()
-                        # Limpiamos nombres para evitar errores por espacios extra
-                        df_actual['PRODUCTO'] = df_actual['PRODUCTO'].astype(str).str.strip().str.upper()
-                        df_b['PRODUCTO'] = df_b['PRODUCTO'].astype(str).str.strip().str.upper()
-                        
-                        # Usamos el NOMBRE DEL PRODUCTO como la "llave"
-                        df_actual.set_index('PRODUCTO', inplace=True)
-                        df_b.set_index('PRODUCTO', inplace=True)
-                        
-                        # 1. Actualiza los datos de los nombres que ya existen
-                        # (Mantiene el SKU original si no viene uno nuevo en el Excel)
-                        df_actual.update(df_b)
-                        
-                        # 2. Encuentra los Productos del Excel que son nuevos
-                        nuevos_productos = df_b[~df_b.index.isin(df_actual.index)]
-                        
-                        # 3. Combinamos
-                        df_final_bulk = pd.concat([df_actual, nuevos_productos])
-                        df_final_bulk.reset_index(inplace=True)
-                        
-                        # Reordenamos columnas al formato de Google Sheets
-                        # SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
-                        columnas_orden = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
-                        df_final_bulk = df_final_bulk[columnas_orden]
-                        
-                        # 4. Limpieza y escritura masiva
-                        ws.clear()
-                        ws.update('A1', [df_final_bulk.columns.values.tolist()] + df_final_bulk.values.tolist())
+                    # Sincronización por Nombre (Upsert)
+                    df_actual = df_raw.copy()
+                    df_actual['PRODUCTO'] = df_actual['PRODUCTO'].astype(str).str.strip().str.upper()
+                    df_b['PRODUCTO'] = df_b['PRODUCTO'].astype(str).str.strip().str.upper()
                     
-                    st.success("¡Inventario sincronizado por NOMBRE con éxito!")
+                    df_actual.set_index('PRODUCTO', inplace=True)
+                    df_b.set_index('PRODUCTO', inplace=True)
+                    
+                    # Actualizamos y concatenamos
+                    df_actual.update(df_b)
+                    nuevos = df_b[~df_b.index.isin(df_actual.index)]
+                    df_final_bulk = pd.concat([df_actual, nuevos]).reset_index()
+                    
+                    # Limpieza final para Google Sheets
+                    df_final_bulk = df_final_bulk[cols_finales].fillna("")
+                    lista_subir = [df_final_bulk.columns.values.tolist()] + df_final_bulk.values.tolist()
+                    
+                    ws.clear()
+                    ws.update('A1', lista_subir)
+                    st.success("¡Sincronización completa! SKUs 'M' generados para registros nuevos.")
                     st.rerun()
 
         # --- TABLA M ---
