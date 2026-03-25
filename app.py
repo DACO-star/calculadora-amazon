@@ -197,7 +197,7 @@ else:
                             if not sk_input:
                                 # Genera un SKU basado en el conteo total + 1
                                 total_filas = len(df_raw) if not df_raw.empty else 0
-                                sk_final = f"AUTO-{total_filas + 1}"
+                                sk_final = f"M-{total_filas + 1}"
                                 st.info(f"💡 SKU no detectado. Se asignó automáticamente: {sk_final}")
                             else:
                                 sk_final = sk_input
