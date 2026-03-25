@@ -6,10 +6,10 @@ import io
 from fpdf import FPDF
 
 # ==========================================
-# CALCUAMZ v4.2.1 - FULL RESTORE (SR.SICHO)
+# CALCUAMZ v4.2.3 - LOGO & ESTABILIDAD
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.1", page_icon="📦")
+st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.3", page_icon="📦")
 
 # --- ESTILO VISUAL ---
 st.markdown("""
@@ -27,7 +27,6 @@ st.markdown("""
         border-radius: 15px;
         padding: 25px;
     }
-    .stButton>button { border-radius: 8px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -92,8 +91,8 @@ if 'auth' not in st.session_state: st.session_state.auth = False
 if not st.session_state.auth:
     st.title("🔐 Acceso CalcuAMZ")
     c1, c2 = st.columns(2)
-    u = c1.text_input("Usuario", key="login_user").lower().strip()
-    p = c2.text_input("Password", type="password", key="login_pass")
+    u = c1.text_input("Usuario").lower().strip()
+    p = c2.text_input("Password", type="password")
     if st.button("Entrar"):
         if u in USUARIOS and USUARIOS[u] == p:
             st.session_state.auth = True; st.session_state.user = u; st.rerun()
@@ -101,74 +100,66 @@ if not st.session_state.auth:
 else:
     # --- LOGO Y SIDEBAR ---
     with st.sidebar:
-        # Reemplaza 'logo.png' con el nombre real de tu archivo en GitHub
         try:
             st.image("logo.png", use_container_width=True)
         except:
-            # Si no encuentra la imagen, pone un icono genérico
-            st.title("📦 Dacocel")
-        
-        st.write(f"Conectado: **{st.session_state.user.upper()}**")
+            st.subheader("📦 CalcuAMZ")
+        st.write(f"Usuario: **{st.session_state.user.upper()}**")
         if st.button("Cerrar Sesión"):
             st.session_state.auth = False; st.rerun()
-            
-    # --- CABECERA PRINCIPAL ---
+
     ws = conectar()
     if ws is None: st.error("Error Sheets"); st.stop()
     df_raw = pd.DataFrame(ws.get_all_records())
-    if not df_raw.empty: df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
-
-    st.title("📊 Master Dashboard v4.2.2")
-    # ... (Resto del código de métricas, pestañas y tabla)
-
-    # --- GESTIÓN ---
-    t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
     
-    with t1:
-        with st.form("f_new"):
-            st.subheader("Registrar Producto")
-            sk_in = st.text_input("SKU (Auto-generar si vacío)").upper().strip()
-            no_in = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
-            c1, c2, c3, c4, c5 = st.columns(5)
-            cos = c1.number_input("Costo USD", format="%.2f")
-            pre = c2.number_input("Precio AMZ", format="%.2f")
-            env_in = c3.number_input("Envío (MXN)", format="%.2f")
-            fee_in = c4.number_input("% Fee", value=10.0)
-            tc_in = c5.number_input("TC", value=18.50)
-            if st.form_submit_button("🚀 Guardar"):
-                if not no_in: st.error("El nombre es obligatorio.")
-                else:
-                    sk_final = sk_in if sk_in else f"AUTO-{len(df_raw)+1}"
-                    ws.append_row([sk_final, no_in, cos, pre, env_in, fee_in, tc_in])
-                    st.rerun()
+    if not df_raw.empty:
+        df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
+        # Cálculo global de df_full para evitar NameError
+        calc_p = df_raw.apply(calcular_detallado, axis=1)
+        calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
+        df_full = pd.concat([df_raw, calc_p], axis=1)
 
-    with t2:
-        if not df_raw.empty:
-            st.subheader("🔍 Localizar Producto para Editar")
-            
-            # 1. BARRA DE BÚSQUEDA INTERNA
+        st.title("📊 Master Dashboard v4.2.3")
+        
+        # --- MÉTRICAS ---
+        m1, m2 = st.columns(2)
+        m1.metric("Total Productos", len(df_raw))
+        m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
+
+        st.divider()
+
+        # --- GESTIÓN ---
+        t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
+        
+        with t1:
+            with st.form("f_new"):
+                st.subheader("Registrar Producto")
+                sk_in = st.text_input("SKU (Auto-generar si vacío)").upper().strip()
+                no_in = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
+                c1, c2, c3, c4, c5 = st.columns(5)
+                cos = c1.number_input("Costo USD", format="%.2f")
+                pre = c2.number_input("Precio AMZ", format="%.2f")
+                env_in = c3.number_input("Envío (MXN)", format="%.2f")
+                fee_in = c4.number_input("% Fee", value=10.0)
+                tc_in = c5.number_input("TC", value=18.50)
+                if st.form_submit_button("🚀 Guardar"):
+                    if not no_in: st.error("El nombre es obligatorio.")
+                    else:
+                        sk_final = sk_in if sk_in else f"AUTO-{len(df_raw)+1}"
+                        ws.append_row([sk_final, no_in, cos, pre, env_in, fee_in, tc_in])
+                        st.rerun()
+
+        with t2:
+            st.subheader("🔍 Buscar para Editar")
             busq_editor = st.text_input("Filtrar por SKU o Nombre...", key="busq_ed").upper().strip()
-            
-            # 2. CREAR LISTA DE OPCIONES (Convertimos a lista de Python para evitar el error de Pandas)
             opciones_todas = (df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO']).tolist()
-            
-            if busq_editor:
-                opciones_filtradas = [opt for opt in opciones_todas if busq_editor in str(opt).upper()]
-            else:
-                opciones_filtradas = opciones_todas
+            opciones_f = [opt for opt in opciones_todas if busq_editor in str(opt).upper()] if busq_editor else opciones_todas
 
-            # CORRECCIÓN DEL ERROR: Usamos 'len()' para validar si hay resultados
-            if len(opciones_filtradas) == 0:
-                st.warning("No se encontraron coincidencias. Intenta con otro término.")
-            else:
-                sel = st.selectbox("Selecciona el producto exacto:", opciones_filtradas)
-                
-                # Obtener el SKU para buscar los datos originales
-                sku_seleccionado = str(sel).split(" - ")[0]
-                idx = df_raw[df_raw['SKU'].astype(str) == sku_seleccionado].index[0]
+            if len(opciones_f) > 0:
+                sel = st.selectbox("Selecciona:", opciones_f)
+                sku_sel = str(sel).split(" - ")[0]
+                idx = df_raw[df_raw['SKU'].astype(str) == sku_sel].index[0]
                 curr = df_raw.iloc[idx]
-
-                # 3. FORMULARIO DE EDICIÓN
                 with st.form("f_edit"):
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
                     ce1, ce2, ce3, ce4, ce5 = st.columns(5)
@@ -177,48 +168,40 @@ else:
                     eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
                     efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
                     etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
-                    
-                    if st.form_submit_button("💾 Actualizar Datos"):
-                        ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, eenv, efee, etc]])
-                        st.success(f"¡{sku_seleccionado} actualizado!")
+                    if st.form_submit_button("💾 Actualizar"):
+                        ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
                         st.rerun()
+                if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
 
-                if st.button("🗑️ Eliminar Producto", type="primary"):
-                    ws.delete_rows(int(idx + 2))
-                    st.rerun()
+        with t3:
+            st.subheader("Carga Masiva")
+            cb1, cb2 = st.columns(2)
+            plant_buf = io.BytesIO()
+            with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
+                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']).to_excel(wr, index=False)
+            cb1.download_button("📥 Descargar Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
+            f_bulk = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'])
+            if f_bulk and st.button("🚀 Iniciar Carga"):
+                df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
+                ws.append_rows(df_b.values.tolist()); st.rerun()
 
-    with t3:
-        st.subheader("Carga Masiva")
-        cb1, cb2 = st.columns(2)
-        # --- DESCARGAR PLANTILLA ---
-        plant_buf = io.BytesIO()
-        with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-            pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']).to_excel(wr, index=False)
-        cb1.download_button("📥 Descargar Plantilla Excel", plant_buf.getvalue(), "plantilla_bulk.xlsx")
-        # --- SUBIR ARCHIVO ---
-        f_bulk = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'])
-        if f_bulk and st.button("🚀 Ejecutar Carga Masiva"):
-            df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-            df_b.columns = [str(c).upper().strip() for c in df_b.columns]
-            ws.append_rows(df_b.values.tolist())
-            st.success("¡Carga exitosa!"); st.rerun()
+        st.divider()
 
-    st.divider()
-
-    # --- TABLA M ---
-    if not df_raw.empty:
+        # --- TABLA M ---
         c_bus, c_pdf = st.columns([3, 1])
-        busq = c_bus.text_input("🔍 Buscar...").upper()
-        if c_pdf.button("📄 Generar Reporte PDF"):
+        busq = c_bus.text_input("🔍 Filtro Maestro...").upper()
+        if c_pdf.button("📄 Generar PDF"):
             pdf_data = generar_pdf(df_full)
-            st.download_button("⬇️ Descargar PDF", pdf_data, "reporte_dacocel.pdf")
+            st.download_button("⬇️ Descargar Reporte", pdf_data, "reporte_dacocel.pdf")
 
-        df_f = df_full.copy()
-        df_f.columns = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
-        if busq: df_f = df_f[df_f['SKU'].astype(str).str.contains(busq) | df_f['PRODUCTO'].astype(str).str.contains(busq)]
+        df_final = df_full.copy()
+        df_final.columns = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
+        if busq: df_final = df_final[df_final['SKU'].astype(str).str.contains(busq) | df_final['PRODUCTO'].astype(str).str.contains(busq)]
 
         fmt = {c: "${:,.2f}" for c in ['COSTO USD', 'AMAZON', 'ENVIO', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD']}
         fmt.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
 
         st.write("### M - Listado Maestro")
-        st.dataframe(df_f.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=1900, hide_index=True)
+        st.dataframe(df_final.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=1900, hide_index=True)
+    else:
+        st.info("La base de datos está vacía. Registra tu primer producto.")
