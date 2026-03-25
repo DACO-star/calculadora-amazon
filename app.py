@@ -189,3 +189,4 @@ else:
 
         st.write("### M - Listado Maestro")
         st.dataframe(df_f.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True
+                    )
