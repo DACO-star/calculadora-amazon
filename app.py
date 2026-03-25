@@ -188,5 +188,4 @@ else:
         fmt.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
 
         st.write("### M - Listado Maestro")
-        st.dataframe(df_f.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=1900, hide_index=True)
-
+        st.dataframe(df_f.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True
