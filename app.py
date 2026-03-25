@@ -139,13 +139,50 @@ else:
 
         with t2:
             if not df_raw.empty:
-                sel = st.selectbox("Seleccionar para editar", df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'])
-                idx = df_raw[df_raw['SKU'].astype(str) == sel.split(" - ")[0]].index[0]
+                # 1. Selector de producto
+                opciones = df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'].astype(str)
+                sel = st.selectbox("Seleccionar para editar", opciones)
+                
+                # 2. Obtener índice y datos actuales
+                sku_buscado = sel.split(" - ")[0]
+                idx = df_raw[df_raw['SKU'].astype(str) == sku_buscado].index[0]
                 curr = df_raw.iloc[idx]
+                
+                # 3. Formulario de Edición
                 with st.form("edit_p"):
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
-                    ce1, ce2, ce3, ce4 = st.columns(4) # Añadimos columna para el Fee
-                    ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
+                    
+                    # Creamos 4 columnas para que quepa el Fee
+                    ce1, ce2, ce3, ce4 = st.columns(4)
+                    
+                    ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']), format="%.2f")
                     etc = ce2.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.0)))
-                    epre = ce3.number_input("Precio Amazon", value=float(curr['AMAZON']))
-                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0))) # Nuevo campo editable
+                    epre = ce3.number_input("Precio Amazon", value=float(curr['AMAZON']), format="%.2f")
+                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
+                    
+                    # EL BOTÓN DEBE ESTAR DENTRO DEL "WITH ST.FORM"
+                    submit_editar = st.form_submit_button("Actualizar Datos")
+                    
+                    if submit_editar:
+                        # Mapeo: SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
+                        # Nota: mantenemos curr['ENVIO'] para no perderlo al editar
+                        nuevos_datos = [
+                            curr['SKU'], 
+                            enom.upper(), 
+                            ecos, 
+                            epre, 
+                            curr['ENVIO'], 
+                            efee, 
+                            etc
+                        ]
+                        ws.update(f'A{idx+2}:G{idx+2}', [nuevos_datos])
+                        st.success(f"✅ {curr['SKU']} actualizado correctamente.")
+                        st.rerun()
+                
+                # El botón de eliminar va FUERA del formulario de edición
+                st.divider()
+                if st.session_state.user in ["admin", "dav"]:
+                    if st.button("🗑️ Eliminar permanentemente"):
+                        ws.delete_rows(int(idx + 2))
+                        st.warning("Producto eliminado.")
+                        st.rerun()
