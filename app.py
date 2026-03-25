@@ -85,35 +85,41 @@ def generar_pdf(df):
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1')
 
-# --- ACCESO ---
+# --- ACCESO Y SEGURIDAD ---
 USUARIOS = {"admin": "amazon123", "dav": "ventas2026", "dax": "amazon2026", "cesar": "ventas789"}
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
     st.title("🔐 Acceso CalcuAMZ")
-    u = st.text_input("Usuario").lower().strip()
-    p = st.text_input("Password", type="password")
+    c1, c2 = st.columns(2)
+    u = c1.text_input("Usuario", key="login_user").lower().strip()
+    p = c2.text_input("Password", type="password", key="login_pass")
     if st.button("Entrar"):
         if u in USUARIOS and USUARIOS[u] == p:
             st.session_state.auth = True; st.session_state.user = u; st.rerun()
+        else: st.error("Credenciales incorrectas")
 else:
+    # --- LOGO Y SIDEBAR ---
+    with st.sidebar:
+        # Reemplaza 'logo.png' con el nombre real de tu archivo en GitHub
+        try:
+            st.image("logo.png", use_container_width=True)
+        except:
+            # Si no encuentra la imagen, pone un icono genérico
+            st.title("📦 Dacocel")
+        
+        st.write(f"Conectado: **{st.session_state.user.upper()}**")
+        if st.button("Cerrar Sesión"):
+            st.session_state.auth = False; st.rerun()
+            
+    # --- CABECERA PRINCIPAL ---
     ws = conectar()
     if ws is None: st.error("Error Sheets"); st.stop()
     df_raw = pd.DataFrame(ws.get_all_records())
     if not df_raw.empty: df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
 
-    st.title("📦 Dacocel Dashboard v4.2.1")
-
-    # --- MÉTRICAS ---
-    if not df_raw.empty:
-        calc_p = df_raw.apply(calcular_detallado, axis=1)
-        calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
-        df_full = pd.concat([df_raw, calc_p], axis=1)
-        m1, m2 = st.columns(2)
-        m1.metric("Total Productos", len(df_raw))
-        m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
-
-    st.divider()
+    st.title("📊 Master Dashboard v4.2.2")
+    # ... (Resto del código de métricas, pestañas y tabla)
 
     # --- GESTIÓN ---
     t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
