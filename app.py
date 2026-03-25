@@ -100,12 +100,18 @@ if not st.session_state.auth:
 else:
     # --- LOGO Y SIDEBAR ---
     with st.sidebar:
-        try:
-            st.image("500x500LOGODACO.png", use_container_width=True)
-        except:
-            st.subheader("📦 CalcuAMZ")
+        # Contenedor para centrar el logo
+        col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
+        with col_logo_2:
+            try:
+                # Ajustamos a 150px de ancho
+                st.image("logo.png", width=150)
+            except:
+                st.markdown("### 📦 Dacocel")
+        
+        st.divider()
         st.write(f"Usuario: **{st.session_state.user.upper()}**")
-        if st.button("Cerrar Sesión"):
+        if st.button("Cerrar Sesión", use_container_width=True):
             st.session_state.auth = False; st.rerun()
 
     ws = conectar()
