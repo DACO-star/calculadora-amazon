@@ -144,68 +144,8 @@ else:
                 curr = df_raw.iloc[idx]
                 with st.form("edit_p"):
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
-                    ce1, ce2, ce3 = st.columns(3)
+                    ce1, ce2, ce3, ce4 = st.columns(4) # Añadimos columna para el Fee
                     ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
                     etc = ce2.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.0)))
                     epre = ce3.number_input("Precio Amazon", value=float(curr['AMAZON']))
-                    if st.form_submit_button("Actualizar Datos"):
-                        ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], curr['% FEE'], etc]])
-                        st.rerun()
-                if st.session_state.user in ["admin", "dav"] and st.button("🗑️ Eliminar permanentemente"):
-                    ws.delete_rows(int(idx + 2)); st.rerun()
-
-        with t3:
-            st.subheader("Carga Bulk")
-            tc_bulk = st.number_input("TC para esta tanda", value=18.50, step=0.01)
-            plant_buf = io.BytesIO()
-            with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', '% FEE', 'ENVIO']).to_excel(wr, index=False)
-            st.download_button("📥 Descargar Plantilla", plant_buf.getvalue(), "plantilla_sicho.xlsx")
-            
-            st.divider()
-            f_bulk = st.file_uploader("Subir Archivo Excel", type=['xlsx', 'csv'])
-            if f_bulk:
-                df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-                df_b.columns = [str(c).strip().upper() for c in df_b.columns]
-                # Lógica Anti-None para Bulk
-                for i, row in df_b.iterrows():
-                    if 'SKU' not in df_b.columns or pd.isna(row.get('SKU')) or str(row.get('SKU')).strip() in ["", "None", "nan"]:
-                        df_b.at[i, 'SKU'] = f"B-{len(df_raw) + i + 1}"
-                
-                df_b['AMAZON'] = df_b.apply(lambda r: calcular_precio_sugerido(r['COSTO USD'], r.get('% FEE', 10), r.get('ENVIO', 0), tc_bulk), axis=1)
-                if st.button("🚀 Ejecutar Carga"):
-                    filas = [[str(f['SKU']), str(f['PRODUCTO']).upper(), f['COSTO USD'], f['AMAZON'], f.get('ENVIO', 0), f.get('% FEE', 10), tc_bulk] for _, f in df_b.iterrows()]
-                    ws.append_rows(filas); st.rerun()
-    else:
-        st.info("💡 Estás en modo consulta. Solo puedes buscar y ver márgenes.")
-
-    st.divider()
-    if not df_raw.empty:
-        c_bus, c_pdf = st.columns([3, 1])
-        busq = c_bus.text_input("🔍 Buscar por SKU o Nombre...").strip().upper()
-        
-        # Procesamiento de Tabla
-        calc = df_raw.apply(calcular_detallado, axis=1)
-        calc.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
-        df_f = pd.concat([df_raw, calc], axis=1)
-        
-        ord_cols = ['SKU', 'PRODUCTO', 'COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', '% FEE', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD', 'MARGEN %']
-        df_f = df_f[[c for c in ord_cols if c in df_f.columns]]
-        
-        if busq: 
-            df_f = df_f[df_f['SKU'].astype(str).str.contains(busq) | df_f['PRODUCTO'].astype(str).str.contains(busq)]
-        
-        with c_pdf:
-            st.write("")
-            if st.button("📄 Preparar PDF"):
-                pdf_b = generar_pdf(df_f)
-                st.download_button("⬇️ Descargar Reporte", pdf_b, "reporte_sicho.pdf")
-
-        mon_fmt = ['COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', 'FEE $', 'RET IVA', 'RET ISR', 'NETO RECIBIDO', 'UTILIDAD']
-        fmt = {c: "${:,.2f}" for c in mon_fmt}
-        fmt.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
-        
-        st.dataframe(
-            df_f.style.format(fmt, na_rep="-").apply(estilo_filas, axis=1), 
-            use_container_width=True, height=1200, hide_index=True
-        )
+                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0))) # Nuevo campo editable
