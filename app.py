@@ -234,5 +234,5 @@ else:
 
         st.dataframe(
             df_f.style.format(fmt, na_rep="-").apply(estilo_filas, axis=1),
-            use_container_width=True, height=1200, hide_index=True
+            use_container_width=True, height=1900, hide_index=True
         )
