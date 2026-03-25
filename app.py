@@ -180,44 +180,44 @@ else:
                 if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
 
            with t3:
-            st.subheader("📦 Carga Masiva de Inventario")
+                st.subheader("📦 Carga Masiva de Inventario")
             
-            # 1. DEFINIR DÓLAR PARA LA CARGA
-            st.info("💡 El Tipo de Cambio que pongas aquí se aplicará a TODOS los productos del archivo.")
-            tc_bulk = st.number_input("T. Cambio para esta carga (MXN)", value=18.50, format="%.2f")
+                # 1. DEFINIR DÓLAR PARA LA CARGA
+                st.info("💡 El Tipo de Cambio que pongas aquí se aplicará a TODOS los productos del archivo.")
+                tc_bulk = st.number_input("T. Cambio para esta carga (MXN)", value=18.50, format="%.2f")
             
-            st.divider()
+                st.divider()
             
-            cb1, cb2 = st.columns(2)
+                cb1, cb2 = st.columns(2)
             
-            # 2. DESCARGAR PLANTILLA
-            plant_buf = io.BytesIO()
-            with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-                # Quitamos TIPO CAMBIO de la plantilla para que lo tome del input de arriba
-                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
-            cb1.download_button("📥 Descargar Plantilla Actualizada", plant_buf.getvalue(), "plantilla_bulk_v2.xlsx")
+                # 2. DESCARGAR PLANTILLA
+                plant_buf = io.BytesIO()
+                with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
+                    # Quitamos TIPO CAMBIO de la plantilla para que lo tome del input de arriba
+                    pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
+                cb1.download_button("📥 Descargar Plantilla Actualizada", plant_buf.getvalue(), "plantilla_bulk_v2.xlsx")
             
-            # 3. SUBIR ARCHIVO
-            f_bulk = st.file_uploader("Subir Archivo (Excel o CSV)", type=['xlsx', 'csv'])
+                # 3. SUBIR ARCHIVO
+                f_bulk = st.file_uploader("Subir Archivo (Excel o CSV)", type=['xlsx', 'csv'])
             
-            if f_bulk and st.button("🚀 Iniciar Carga con Dólar a $" + str(tc_bulk)):
-                try:
-                    df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-                    df_b.columns = [str(c).upper().strip() for c in df_b.columns]
+                if f_bulk and st.button("🚀 Iniciar Carga con Dólar a $" + str(tc_bulk)):
+                    try:
+                        df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
+                        df_b.columns = [str(c).upper().strip() for c in df_b.columns]
                     
-                    # Forzamos el Tipo de Cambio seleccionado a cada fila
-                    df_b['TIPO CAMBIO'] = tc_bulk
+                        # Forzamos el Tipo de Cambio seleccionado a cada fila
+                        df_b['TIPO CAMBIO'] = tc_bulk
                     
-                    # Aseguramos el orden de las columnas para Google Sheets (A a G)
-                    # SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
-                    columnas_finales = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
+                        # Aseguramos el orden de las columnas para Google Sheets (A a G)
+                        # SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
+                        columnas_finales = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
                     
-                    # Si faltan columnas en el Excel, las creamos con 0
-                    for col in columnas_finales:
-                        if col not in df_b.columns:
-                            df_b[col] = 0
-                    
-                    df_preparado = df_b[columnas_finales]
+                        # Si faltan columnas en el Excel, las creamos con 0
+                        for col in columnas_finales:
+                            if col not in df_b.columns:
+                                df_b[col] = 0
+                        
+                        df_preparado = df_b[columnas_finales]
                     
                     # Subir a Sheets
                     ws.append_rows(df_preparado.values.tolist())
