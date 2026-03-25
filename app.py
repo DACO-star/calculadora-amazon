@@ -177,26 +177,76 @@ else:
                     st.rerun()
 
         with t3:
-            st.subheader("📦 Carga Masiva (Bulk)")
+            st.subheader("📦 Carga Masiva y Actualización (Bulk)")
+            st.info("💡 El Tipo de Cambio aquí se aplicará a TODO el archivo subido.")
             tc_bulk = st.number_input("Dólar para esta carga (MXN)", value=18.50, format="%.2f")
+            
+            # Selector de modo de carga
+            modo_carga = st.radio(
+                "Modo de Carga:", 
+                ["➕ Solo Añadir (Ignorar actualizaciones)", "🔄 Actualizar Existentes y Añadir Nuevos"], 
+                horizontal=True
+            )
+            
             st.divider()
             cb1, cb2 = st.columns(2)
+            
+            # Plantilla
             plant_buf = io.BytesIO()
             with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
                 pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
             cb1.download_button("📥 Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
+            
+            # Subida
             f_bulk = st.file_uploader("Subir Excel/CSV", type=['xlsx', 'csv'])
-            if f_bulk and st.button(f"🚀 Cargar con Dólar a ${tc_bulk}"):
+            
+            if f_bulk and st.button(f"🚀 Ejecutar {'Actualización' if 'Actualizar' in modo_carga else 'Carga'} con Dólar a ${tc_bulk}"):
                 df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
                 df_b.columns = [str(c).upper().strip() for c in df_b.columns]
                 df_b['TIPO CAMBIO'] = tc_bulk
+                
                 columnas = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
                 for col in columnas:
                     if col not in df_b.columns: df_b[col] = 0
-                ws.append_rows(df_b[columnas].values.tolist())
-                st.rerun()
-
-        st.divider()
+                df_b = df_b[columnas] # Orden estricto
+                
+                # MODO 1: SOLO AÑADIR
+                if modo_carga == "➕ Solo Añadir (Ignorar actualizaciones)":
+                    ws.append_rows(df_b.values.tolist())
+                    st.success("¡Nuevos productos añadidos correctamente!")
+                    st.rerun()
+                
+                # MODO 2: ACTUALIZACIÓN INTELIGENTE (Upsert)
+                else:
+                    if df_raw.empty:
+                        ws.append_rows(df_b.values.tolist())
+                    else:
+                        df_actual = df_raw.copy()
+                        # Forzamos que los SKUs sean texto para que la comparación sea exacta
+                        df_actual['SKU'] = df_actual['SKU'].astype(str)
+                        df_b['SKU'] = df_b['SKU'].astype(str)
+                        
+                        # Usamos el SKU como la "llave" para buscar coincidencias
+                        df_actual.set_index('SKU', inplace=True)
+                        df_b.set_index('SKU', inplace=True)
+                        
+                        # 1. Sobreescribe los datos de los SKUs que ya existen
+                        df_actual.update(df_b)
+                        
+                        # 2. Encuentra los SKUs del Excel que son completamente nuevos
+                        nuevos_skus = df_b[~df_b.index.isin(df_actual.index)]
+                        
+                        # 3. Combina los actualizados con los nuevos
+                        df_final_bulk = pd.concat([df_actual, nuevos_skus])
+                        df_final_bulk.reset_index(inplace=True)
+                        df_final_bulk = df_final_bulk[columnas]
+                        
+                        # 4. Borra la hoja de Google Sheets y la reescribe rapidísimo con los datos limpios
+                        ws.clear()
+                        ws.update('A1', [df_final_bulk.columns.values.tolist()] + df_final_bulk.values.tolist())
+                    
+                    st.success("¡Inventario actualizado y sincronizado con éxito!")
+                    st.rerun()
 
         # --- TABLA M ---
         c_bus, c_pdf = st.columns([3, 1])
