@@ -101,7 +101,7 @@ else:
     # --- LOGO Y SIDEBAR ---
     with st.sidebar:
         try:
-            st.image("logo.png", use_container_width=True)
+            st.image("500x500LOGODACO.png", use_container_width=True)
         except:
             st.subheader("📦 CalcuAMZ")
         st.write(f"Usuario: **{st.session_state.user.upper()}**")
