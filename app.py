@@ -5,10 +5,10 @@ from google.oauth2.service_account import Credentials
 import io
 
 # ==========================================
-# CALCUAMZ v4.3.1 - AUTO-HEADER REPAIR
+# CALCUAMZ v4.3.5 - TOTAL REPAIR & SYNC
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="CalcuAMZ v4.3.1", page_icon="📦")
+st.set_page_config(layout="wide", page_title="CalcuAMZ v4.3.5", page_icon="📦")
 
 COLS_MAESTRAS = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
 
@@ -30,16 +30,18 @@ def conectar():
 
 def calcular_detallado(r):
     try:
-        c_usd = float(r.get('COSTO USD', 0))
-        p_amz = float(r.get('AMAZON', 0))
-        p_fee = float(r.get('% FEE', 10.0))
-        env = float(r.get('ENVIO', 0))
-        t_c = float(r.get('TIPO CAMBIO', 18.50))
-        costo_mxn = c_usd * t_c
-        dinero_fee = p_amz * (p_fee / 100)
-        base_grav = p_amz / 1.16
+        # Convertimos todo a float forzosamente para evitar errores de cálculo
+        c_usd = pd.to_numeric(r.get('COSTO USD', 0), errors='coerce') or 0.0
+        p_amz = pd.to_numeric(r.get('AMAZON', 0), errors='coerce') or 0.0
+        p_fee = pd.to_numeric(r.get('% FEE', 10.0), errors='coerce') or 10.0
+        env = pd.to_numeric(r.get('ENVIO', 0), errors='coerce') or 0.0
+        t_c = pd.to_numeric(r.get('TIPO CAMBIO', 18.50), errors='coerce') or 18.50
+        
+        costo_mxn = float(c_usd) * float(t_c)
+        dinero_fee = float(p_amz) * (float(p_fee) / 100)
+        base_grav = float(p_amz) / 1.16
         ret_iva, ret_isr = base_grav * 0.08, base_grav * 0.025
-        neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
+        neto = float(p_amz) - dinero_fee - abs(float(env)) - ret_iva - ret_isr
         utilidad = neto - costo_mxn
         margen = (utilidad / neto) * 100 if neto > 0 else 0
         return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
@@ -75,33 +77,27 @@ else:
         st.write(f"Usuario: **{st.session_state.user.upper()}**")
         if st.button("Cerrar Sesión"): st.session_state.auth = False; st.rerun()
 
-    # --- DATOS (Función Autocurativa) ---
+    # --- DATOS ---
     ws = conectar()
     if ws is None: st.error("Error Sheets"); st.stop()
     
-    # 1. Obtenemos TODOS los valores (incluyendo fila 1)
     raw_data = ws.get_all_values()
     
-    if not raw_data:
-        # Si está totalmente vacío, ponemos encabezados
-        ws.append_row(COLS_MAESTRAS)
-        df_raw = pd.DataFrame(columns=COLS_MAESTRAS)
-    elif raw_data[0][0].upper() != 'SKU':
-        # ¡ERROR DETECTADO! La fila 1 es data, no encabezado.
-        # Insertamos una fila al principio con los nombres
+    if not raw_data or raw_data[0][0].upper() != 'SKU':
+        # Si la hoja está mal (sin SKU en A1), la reseteamos con encabezados
         ws.insert_row(COLS_MAESTRAS, 1)
-        st.warning("⚠️ Se han regenerado los encabezados en Google Sheets. Por favor, recarga la página.")
-        st.stop()
-    else:
-        # Todo bien, cargamos normal
-        df_raw = pd.DataFrame(raw_data[1:], columns=raw_data[0])
-        df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
+        st.warning("Encabezados corregidos. Recargando...")
+        st.rerun()
+    
+    # Cargamos el DataFrame asegurando que la fila 1 son las columnas
+    df_raw = pd.DataFrame(raw_data[1:], columns=raw_data[0])
+    df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
 
-    # Limpieza de nulos para evitar errores de concatenación
-    df_raw['SKU'] = df_raw['SKU'].astype(str).replace(['nan', 'None', 'NaN'], '')
-    df_raw['PRODUCTO'] = df_raw['PRODUCTO'].astype(str).replace(['nan', 'None', 'NaN'], '')
+    # Convertimos numéricos para evitar el error de float() en la línea 149
+    for col in ['COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']:
+        df_raw[col] = pd.to_numeric(df_raw[col], errors='coerce').fillna(0.0)
 
-    st.title("📊 Master Dashboard v4.3.1")
+    st.title("📊 Master Dashboard v4.3.5")
 
     df_full = pd.DataFrame()
     if not df_raw.empty:
@@ -110,21 +106,24 @@ else:
         df_full = pd.concat([df_raw, calc_res], axis=1)
         m1, m2 = st.columns(2)
         m1.metric("Productos", len(df_raw))
-        m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%" if not df_full.empty else "0%")
+        m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
     
     st.divider()
     t1, t2, t3 = st.tabs(["➕ Nuevo", "✏️ Editar", "📂 Bulk"])
 
-    # --- PESTAÑAS (Igual que v4.3.0 pero con SKUs M- reforzados) ---
     with t1:
         with st.form("f_new"):
-            st.subheader("Nuevo Producto")
-            sk_in = st.text_input("SKU (M- si vacío)").upper().strip()
-            no_in = st.text_input("Nombre (Obligatorio)").upper().strip()
+            st.subheader("Registrar Producto")
+            sk_in = st.text_input("SKU (Prefijo M si vacío)").upper().strip()
+            no_in = st.text_input("Nombre").upper().strip()
             c1, c2, c3, c4, c5 = st.columns(5)
-            cos, pre, env_in, fee_in, tc_in = c1.number_input("Costo USD"), c2.number_input("Precio AMZ"), c3.number_input("Envío MXN"), c4.number_input("% Fee", 10.0), c5.number_input("TC", 18.50)
-            if st.form_submit_button("🚀 Guardar"):
-                if not no_in: st.error("Falta nombre")
+            cos = c1.number_input("Costo USD", min_value=0.0)
+            pre = c2.number_input("Precio AMZ", min_value=0.0)
+            env_in = c3.number_input("Envío MXN", min_value=0.0)
+            fee_in = c4.number_input("% Fee", value=10.0)
+            tc_in = c5.number_input("TC", value=18.50)
+            if st.form_submit_button("💾 Guardar"):
+                if not no_in: st.error("Falta el nombre")
                 else:
                     sk_f = sk_in if sk_in else f"M-{len(df_raw)+1}"
                     ws.append_row([sk_f, no_in, cos, pre, env_in, fee_in, tc_in])
@@ -134,59 +133,73 @@ else:
         if df_raw.empty: st.info("Nada que editar.")
         else:
             busq_ed = st.text_input("Filtrar para editar...").upper().strip()
-            df_raw['DESC_COMBO'] = df_raw['SKU'] + " - " + df_raw['PRODUCTO']
-            opciones = df_raw['DESC_COMBO'].tolist()
-            opciones_f = [o for o in opciones if busq_ed in str(o).upper()] if busq_ed else opciones
+            # Combinación segura de strings
+            df_raw['COMBO'] = df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'].astype(str)
+            op_f = [o for o in df_raw['COMBO'].tolist() if busq_ed in o] if busq_ed else df_raw['COMBO'].tolist()
             
-            if opciones_f:
-                sel = st.selectbox("Seleccionar:", opciones_f)
-                sku_sel = str(sel).split(" - ")[0]
-                idx = df_raw[df_raw['SKU'] == sku_sel].index[0]
-                curr = df_raw.iloc[idx]
-                with st.form("f_edit"):
-                    enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
+            if op_f:
+                sel = st.selectbox("Seleccionar:", op_f)
+                idx_orig = df_raw[df_raw['COMBO'] == sel].index[0]
+                curr_row = df_raw.iloc[idx_orig]
+                
+                with st.form("f_edit_main"):
+                    enom = st.text_input("Nombre", value=str(curr_row['PRODUCTO']))
                     ce1, ce2, ce3, ce4, ce5 = st.columns(5)
-                    ecos, epre, eenv, efee, etc = ce1.number_input("Costo", value=float(curr['COSTO USD'])), ce2.number_input("Precio", value=float(curr['AMAZON'])), ce3.number_input("Envío", value=float(curr.get('ENVIO', 0))), ce4.number_input("Fee", value=float(curr.get('% FEE', 10))), ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
-                    if st.form_submit_button("💾 Actualizar"):
-                        ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
+                    ecos = ce1.number_input("Costo", value=float(curr_row['COSTO USD']))
+                    epre = ce2.number_input("Precio", value=float(curr_row['AMAZON']))
+                    eenv = ce3.number_input("Envío", value=float(curr_row['ENVIO']))
+                    efee = ce4.number_input("Fee", value=float(curr_row['% FEE']))
+                    etc = ce5.number_input("TC", value=float(curr_row['TIPO CAMBIO']))
+                    
+                    sub_col1, sub_col2 = st.columns(2)
+                    if sub_col1.form_submit_button("✅ Actualizar"):
+                        ws.update(f'A{idx_orig+2}:G{idx_orig+2}', [[str(curr_row['SKU']), enom.upper(), ecos, epre, eenv, efee, etc]])
                         st.rerun()
-                if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
+                    if sub_col2.form_submit_button("🗑️ Eliminar"):
+                        ws.delete_rows(int(idx_orig + 2))
+                        st.rerun()
 
     with t3:
-        st.subheader("Sincronización Bulk")
-        tc_bulk = st.number_input("Dólar Carga", value=18.50, key="tc_bulk")
-        modo = st.radio("Modo:", ["➕ Añadir", "🔄 Sincronizar (Nombre)"], horizontal=True)
-        f_bulk = st.file_uploader("Excel/CSV", type=['xlsx', 'csv'])
-        if f_bulk and st.button("🚀 Iniciar"):
+        st.subheader("Carga Masiva")
+        tc_bulk = st.number_input("Dólar para esta carga", value=18.50)
+        modo = st.radio("Modo:", ["➕ Añadir", "🔄 Upsert (Sincronizar)"], horizontal=True)
+        f_bulk = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'])
+        if f_bulk and st.button("🚀 Procesar Carga"):
             df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
             df_b.columns = [str(c).upper().strip() for c in df_b.columns]
             df_b['TIPO CAMBIO'] = tc_bulk
-            for c in COLS_MAESTRAS: 
+            for c in COLS_MAESTRAS:
                 if c not in df_b.columns: df_b[c] = ""
             df_b = df_b[COLS_MAESTRAS].fillna("")
-            count = len(df_raw)
-            df_b['SKU'] = [str(r['SKU']) if str(r['SKU']).strip() != "" else f"M-{count+i+1}" for i, r in df_b.iterrows()]
+            
+            # Autogenerar M-SKUs
+            count_base = len(df_raw)
+            df_b['SKU'] = [str(r['SKU']) if str(r['SKU']).strip() != "" else f"M-{count_base+i+1}" for i, r in df_b.iterrows()]
             
             if modo == "➕ Añadir":
                 ws.append_rows(df_b.values.tolist())
             else:
-                df_act, df_b_proc = df_raw.copy(), df_b.copy()
-                df_act['PRODUCTO'] = df_act['PRODUCTO'].astype(str).str.upper().str.strip()
-                df_b_proc['PRODUCTO'] = df_b_proc['PRODUCTO'].astype(str).str.upper().str.strip()
-                df_act.set_index('PRODUCTO', inplace=True); df_b_proc.set_index('PRODUCTO', inplace=True)
+                # Sincronización
+                df_act = df_raw.copy()
+                df_act.set_index('PRODUCTO', inplace=True)
+                df_b_proc = df_b.copy().set_index('PRODUCTO')
                 df_act.update(df_b_proc)
                 nuevos = df_b_proc[~df_b_proc.index.isin(df_act.index)]
                 df_f = pd.concat([df_act, nuevos]).reset_index()
                 df_f = df_f[COLS_MAESTRAS].fillna("")
-                ws.clear(); ws.update('A1', [COLS_MAESTRAS] + df_f.values.tolist())
+                ws.clear()
+                ws.update('A1', [COLS_MAESTRAS] + df_f.values.tolist())
             st.rerun()
 
+    # --- TABLA FINAL ---
     if not df_full.empty:
         st.divider()
         busq = st.text_input("🔍 Filtro Maestro...").upper()
         df_viz = df_full.copy()
-        df_viz.columns = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
-        if busq: df_viz = df_viz[df_viz['SKU'].str.contains(busq) | df_viz['PRODUCTO'].str.contains(busq)]
-        fmt = {c: "${:,.2f}" for c in ['COSTO USD', 'AMAZON', 'ENVIO', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD']}
-        fmt.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
-        st.dataframe(df_viz.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=800, hide_index=True)
+        df_viz.columns = ['SKU', 'PRODUCTO', 'C USD', 'AMZ', 'ENV', 'FEE', 'TC', 'C MXN', 'F $', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN %']
+        if busq:
+            df_viz = df_viz[df_viz['SKU'].astype(str).str.contains(busq) | df_viz['PRODUCTO'].astype(str).str.contains(busq)]
+        
+        fmt = {c: "${:,.2f}" for c in ['C USD', 'AMZ', 'ENV', 'TC', 'C MXN', 'F $', 'IVA', 'ISR', 'NETO', 'UTIL']}
+        fmt.update({'MARGEN %': "{:.2f}%", 'FEE': "{:.2f}%"})
+        st.dataframe(df_viz.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=600, hide_index=True)
