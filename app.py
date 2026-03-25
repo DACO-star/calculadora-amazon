@@ -161,16 +161,54 @@ else:
         with t1:
             with st.form("f_new"):
                 st.subheader("Registrar Nuevo Producto")
-                sk = st.text_input("SKU").upper()
-                no = st.text_input("Nombre del Producto")
+                
+                # Campos de entrada
+                sk_input = st.text_input("SKU (Opcional - Se generará uno si queda vacío)").upper().strip()
+                no_input = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
+                
                 c1, c2, c3, c4 = st.columns(4)
-                cos = c1.number_input("Costo USD", format="%.2f")
-                pre = c2.number_input("Precio Amazon", format="%.2f")
+                cos = c1.number_input("Costo USD", min_value=0.0, format="%.2f")
+                pre = c2.number_input("Precio Amazon", min_value=0.0, format="%.2f")
                 fee = c3.number_input("% Fee Amazon", value=10.0)
                 tc = c4.number_input("T. Cambio", value=18.50)
-                if st.form_submit_button("🚀 Guardar en Base de Datos"):
-                    ws.append_row([sk, no.upper(), cos, pre, 0, fee, tc])
-                    st.success("Guardado exitosamente"); st.rerun()
+                
+                submit_nuevo = st.form_submit_button("🚀 Guardar en Base de Datos")
+                
+                if submit_nuevo:
+                    # 1. VALIDACIÓN PRIMARIA: El nombre es indispensable
+                    if not no_input:
+                        st.error("❌ No puedes registrar un producto sin NOMBRE.")
+                    
+                    else:
+                        # Revisamos duplicados en los datos actuales
+                        nombres_existentes = df_raw['PRODUCTO'].astype(str).values if not df_raw.empty else []
+                        skus_existentes = df_raw['SKU'].astype(str).values if not df_raw.empty else []
+                        
+                        # 2. VALIDACIÓN DE NOMBRE (Prioridad Alta)
+                        if no_input in nombres_existentes:
+                            st.warning(f"⚠️ Ya existe un producto llamado '{no_input}'. Verifica si no lo estás duplicando.")
+                        
+                        # 3. VALIDACIÓN DE SKU
+                        elif sk_input and sk_input in skus_existentes:
+                            st.warning(f"⚠️ El SKU '{sk_input}' ya está asignado a otro producto.")
+                        
+                        else:
+                            # 4. ASIGNACIÓN AUTOMÁTICA DE SKU (Si viene vacío)
+                            if not sk_input:
+                                # Genera un SKU basado en el conteo total + 1
+                                total_filas = len(df_raw) if not df_raw.empty else 0
+                                sk_final = f"AUTO-{total_filas + 1}"
+                                st.info(f"💡 SKU no detectado. Se asignó automáticamente: {sk_final}")
+                            else:
+                                sk_final = sk_input
+                            
+                            # GUARDADO FINAL
+                            try:
+                                ws.append_row([sk_final, no_input, cos, pre, 0, fee, tc])
+                                st.success(f"✅ '{no_input}' registrado con éxito.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error al conectar con la base de datos: {e}")
 
         with t2:
             if not df_raw.empty:
