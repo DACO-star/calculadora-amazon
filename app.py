@@ -179,7 +179,7 @@ else:
                         st.rerun()
                 if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
 
-       with t3:
+           with t3:
             st.subheader("📦 Carga Masiva de Inventario")
             
             # 1. DEFINIR DÓLAR PARA LA CARGA
