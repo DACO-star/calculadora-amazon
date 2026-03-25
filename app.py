@@ -151,7 +151,6 @@ else:
         m1.metric("Total Productos", len(df_raw))
         m2.metric("Margen Promedio", f"{df_full_pre['MARGEN'].mean():.2f}%")
         en_riesgo = len(df_full_pre[df_full_pre['MARGEN'] < 6])
-        m4.metric("Riesgo (Bajo 6%)", en_riesgo, delta="- Alerta" if en_riesgo > 0 else "OK", delta_color="inverse")
 
     st.divider()
 
