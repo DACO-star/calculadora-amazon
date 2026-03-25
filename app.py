@@ -6,67 +6,69 @@ import io
 from fpdf import FPDF
 
 # ==========================================
-# CALCUAMZ v3.0 - MASTER EDITION (SR.SICHO)
+# CALCUAMZ v4.2.3 - LOGO & ESTABILIDAD
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="CalcuAMZ v3.0", page_icon="📦")
+st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.3", page_icon="📦")
 
-USUARIOS = {
-    "admin": "amazon123", "dav": "ventas2026",
-    "dax": "amazon2026", "cesar": "ventas789",
-    "consulta": "lector2026"
-}
+# --- ESTILO VISUAL ---
+st.markdown("""
+    <style>
+    .stApp { background-color: #0e1117; }
+    .stMetric { 
+        background-color: #1e2130; 
+        padding: 20px; 
+        border-radius: 12px; 
+        border-left: 5px solid #a65d00;
+    }
+    div[data-testid="stForm"] {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 15px;
+        padding: 25px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 def conectar():
     try:
         info = st.secrets["gcp_service_account"]
         creds = Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
         return gspread.authorize(creds).open_by_key("1mF-9Ayv95PJmk4v8PrIDHf2-lRnHFZd5WOxQ__cb3Ss").sheet1
-    except:
-        return None
+    except: return None
 
 def calcular_detallado(r):
     try:
-        c_usd = float(r.get('COSTO USD', 0))
-        p_amz = float(r.get('AMAZON', 0))
-        p_fee = float(r.get('% FEE', 10.0))
-        env = float(r.get('ENVIO', 0))
+        c_usd, p_amz = float(r.get('COSTO USD', 0)), float(r.get('AMAZON', 0))
+        p_fee, env = float(r.get('% FEE', 10.0)), float(r.get('ENVIO', 0))
         t_c = float(r.get('TIPO CAMBIO', 18.00))
         costo_mxn = c_usd * t_c
         dinero_fee = p_amz * (p_fee / 100)
-        base_gravable = p_amz / 1.16
-        ret_iva = base_gravable * 0.08
-        ret_isr = base_gravable * 0.025
+        base_grav = p_amz / 1.16
+        ret_iva, ret_isr = base_grav * 0.08, base_grav * 0.025
         neto = p_amz - dinero_fee - abs(env) - ret_iva - ret_isr
         utilidad = neto - costo_mxn
         margen = (utilidad / neto) * 100 if neto > 0 else 0
         return pd.Series([costo_mxn, dinero_fee, ret_iva, ret_isr, neto, utilidad, margen])
-    except:
-        return pd.Series([0,0,0,0,0,0,0])
+    except: return pd.Series([0,0,0,0,0,0,0])
 
 def estilo_filas(row):
     estilos = [''] * len(row)
-    if 'AMAZON' in row.index:
-        idx_amz = row.index.get_loc('AMAZON')
-        estilos[idx_amz] = 'background-color: #a65d00; color: white; font-weight: bold;'
     if 'MARGEN %' in row.index:
         val = row['MARGEN %']
-        idx_margen = row.index.get_loc('MARGEN %')
-        color_letra = 'color: #ff4b4b;' if val < 0 else 'color: white;'
-        if val <= 6.0: bg = 'background-color: #551a1a;'
-        elif 6.1 <= val <= 8.0: bg = 'background-color: #5e541e;'
-        else: bg = 'background-color: #1a4d1a;'
-        estilos[idx_margen] = f'{color_letra} {bg}'
+        idx = row.index.get_loc('MARGEN %')
+        bg = '#551a1a' if val <= 6.0 else ('#5e541e' if val <= 8.0 else '#1a4d1a')
+        estilos[idx] = f'background-color: {bg}; color: white; font-weight: bold;'
     return estilos
 
 def generar_pdf(df):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
     pdf.add_page()
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "Reporte de Inventario y Margenes - CalcuAMZ v3.0", ln=True, align='C')
+    pdf.cell(0, 10, "Reporte Maestro de Inventario - Dacocel", ln=True, align='C')
     pdf.ln(5)
     pdf.set_font("Arial", 'B', 8)
-    headers = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'UTILIDAD', 'MARGEN %']
+    headers = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', 'MARGEN %']
     widths = [30, 90, 25, 25, 25, 25]
     for i, h in enumerate(headers):
         pdf.cell(widths[i], 10, h, 1, 0, 'C')
@@ -77,113 +79,129 @@ def generar_pdf(df):
         pdf.cell(widths[1], 8, str(row['PRODUCTO'])[:50], 1)
         pdf.cell(widths[2], 8, f"${row['COSTO USD']:,.2f}", 1)
         pdf.cell(widths[3], 8, f"${row['AMAZON']:,.2f}", 1)
-        pdf.cell(widths[4], 8, f"${row['UTILIDAD']:,.2f}", 1)
+        pdf.cell(widths[4], 8, f"${row['ENVIO']:,.2f}", 1)
         pdf.cell(widths[5], 8, f"{row['MARGEN %']:.2f}%", 1)
         pdf.ln()
     return pdf.output(dest='S').encode('latin-1')
 
-# --- ACCESO ---
+# --- ACCESO Y SEGURIDAD ---
+USUARIOS = {"admin": "amazon123", "dav": "ventas2026", "dax": "amazon2026", "cesar": "ventas789"}
 if 'auth' not in st.session_state: st.session_state.auth = False
 
 if not st.session_state.auth:
-    st.title("🔐 Acceso CalcuAMZ v3.0")
+    st.title("🔐 Acceso CalcuAMZ")
     c1, c2 = st.columns(2)
     u = c1.text_input("Usuario").lower().strip()
-    p = c2.text_input("Contraseña", type="password")
-    if st.button("Ingresar"):
+    p = c2.text_input("Password", type="password")
+    if st.button("Entrar"):
         if u in USUARIOS and USUARIOS[u] == p:
             st.session_state.auth = True; st.session_state.user = u; st.rerun()
+        else: st.error("Credenciales incorrectas")
 else:
-    ws = conectar()
-    if ws is None: st.error("Error de conexión"); st.stop()
-    
-    df_raw = pd.DataFrame(ws.get_all_records())
-    if not df_raw.empty:
-        df_raw.columns = [str(c).strip().upper() for c in df_raw.columns]
-
-    es_editor = st.session_state.user in ["admin", "dav", "dax", "cesar"]
-
+    # --- LOGO Y SIDEBAR ---
     with st.sidebar:
-        st.title("🛠️ Opciones")
-        st.write(f"Conectado: **{st.session_state.user.upper()}**")
+        try:
+            st.image("logo.png", use_container_width=True)
+        except:
+            st.subheader("📦 CalcuAMZ")
+        st.write(f"Usuario: **{st.session_state.user.upper()}**")
         if st.button("Cerrar Sesión"):
             st.session_state.auth = False; st.rerun()
 
-    st.title("📦 Panel de Control v3.0")
+    ws = conectar()
+    if ws is None: st.error("Error Sheets"); st.stop()
+    df_raw = pd.DataFrame(ws.get_all_records())
+    
+    if not df_raw.empty:
+        df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
+        # Cálculo global de df_full para evitar NameError
+        calc_p = df_raw.apply(calcular_detallado, axis=1)
+        calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
+        df_full = pd.concat([df_raw, calc_p], axis=1)
 
-    if es_editor:
-        t1, t2, t3 = st.tabs(["➕ Nuevo", "✏️ Editar / Borrar", "📂 Carga Bulk"])
+        st.title("📊 Master Dashboard v4.2.3")
+        
+        # --- MÉTRICAS ---
+        m1, m2 = st.columns(2)
+        m1.metric("Total Productos", len(df_raw))
+        m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
+
+        st.divider()
+
+        # --- GESTIÓN ---
+        t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
         
         with t1:
-            with st.form("f_nuevo"):
-                sk = st.text_input("SKU").upper()
-                no = st.text_input("Nombre Producto")
-                # Añadimos 4 columnas para incluir el Fee predeterminado
-                c1, c2, c3, c4 = st.columns(4)
+            with st.form("f_new"):
+                st.subheader("Registrar Producto")
+                sk_in = st.text_input("SKU (Auto-generar si vacío)").upper().strip()
+                no_in = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
+                c1, c2, c3, c4, c5 = st.columns(5)
                 cos = c1.number_input("Costo USD", format="%.2f")
-                pre = c2.number_input("Precio Amazon", format="%.2f")
-                tc = c3.number_input("TC", value=18.50)
-                n_fee = c4.number_input("% Fee Amazon", value=10.0) # <--- Fee agregado aquí
-                
-                if st.form_submit_button("Guardar Producto"):
-                    ws.append_row([sk, no.upper(), cos, pre, 0, n_fee, tc])
-                    st.success(f"Producto {sk} guardado."); st.rerun()
+                pre = c2.number_input("Precio AMZ", format="%.2f")
+                env_in = c3.number_input("Envío (MXN)", format="%.2f")
+                fee_in = c4.number_input("% Fee", value=10.0)
+                tc_in = c5.number_input("TC", value=18.50)
+                if st.form_submit_button("🚀 Guardar"):
+                    if not no_in: st.error("El nombre es obligatorio.")
+                    else:
+                        sk_final = sk_in if sk_in else f"AUTO-{len(df_raw)+1}"
+                        ws.append_row([sk_final, no_in, cos, pre, env_in, fee_in, tc_in])
+                        st.rerun()
 
         with t2:
-            if not df_raw.empty:
-                sel = st.selectbox("Elegir producto", df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'])
-                idx = df_raw[df_raw['SKU'].astype(str) == sel.split(" - ")[0]].index[0]
+            st.subheader("🔍 Buscar para Editar")
+            busq_editor = st.text_input("Filtrar por SKU o Nombre...", key="busq_ed").upper().strip()
+            opciones_todas = (df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO']).tolist()
+            opciones_f = [opt for opt in opciones_todas if busq_editor in str(opt).upper()] if busq_editor else opciones_todas
+
+            if len(opciones_f) > 0:
+                sel = st.selectbox("Selecciona:", opciones_f)
+                sku_sel = str(sel).split(" - ")[0]
+                idx = df_raw[df_raw['SKU'].astype(str) == sku_sel].index[0]
                 curr = df_raw.iloc[idx]
-                with st.form("f_editar"):
+                with st.form("f_edit"):
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
-                    ce1, ce2, ce3, ce4 = st.columns(4)
+                    ce1, ce2, ce3, ce4, ce5 = st.columns(5)
                     ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
-                    epre = ce2.number_input("Precio Amazon", value=float(curr['AMAZON']))
-                    efee = ce3.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
-                    etc = ce4.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.0)))
-                    if st.form_submit_button("Actualizar Datos"):
-                        ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, curr['ENVIO'], efee, etc]])
+                    epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
+                    eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
+                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
+                    etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
+                    if st.form_submit_button("💾 Actualizar"):
+                        ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
                         st.rerun()
-                if st.button("🗑️ Eliminar Producto"):
-                    ws.delete_rows(int(idx + 2)); st.rerun()
+                if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
 
         with t3:
             st.subheader("Carga Masiva")
-            col_b1, col_b2 = st.columns(2)
+            cb1, cb2 = st.columns(2)
             plant_buf = io.BytesIO()
             with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', '% FEE', 'ENVIO']).to_excel(wr, index=False)
-            col_b1.download_button("📥 Descargar Plantilla Excel", plant_buf.getvalue(), "plantilla_bulk.xlsx")
-            tc_bulk = col_b2.number_input("TC para carga", value=18.50)
+                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']).to_excel(wr, index=False)
+            cb1.download_button("📥 Descargar Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
             f_bulk = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'])
-            if f_bulk and st.button("🚀 Ejecutar Carga"):
+            if f_bulk and st.button("🚀 Iniciar Carga"):
                 df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-                # ... (Lógica de carga masiva simplificada para estabilidad)
-                st.info("Procesando...")
+                ws.append_rows(df_b.values.tolist()); st.rerun()
 
-    st.divider()
+        st.divider()
 
-    # --- TABLA Y PDF ---
-    if not df_raw.empty:
+        # --- TABLA M ---
         c_bus, c_pdf = st.columns([3, 1])
-        busq = c_bus.text_input("🔍 Buscar SKU o Producto...").upper()
-        
-        calc = df_raw.apply(calcular_detallado, axis=1)
-        calc.columns = ['COSTO MXN', 'FEE $', 'RET IVA', 'RET ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
-        df_f = pd.concat([df_raw, calc], axis=1)
-        
-        if busq:
-            df_f = df_f[df_f['SKU'].astype(str).str.contains(busq) | df_f['PRODUCTO'].astype(str).str.contains(busq)]
+        busq = c_bus.text_input("🔍 Filtro Maestro...").upper()
+        if c_pdf.button("📄 Generar PDF"):
+            pdf_data = generar_pdf(df_full)
+            st.download_button("⬇️ Descargar Reporte", pdf_data, "reporte_dacocel.pdf")
 
-        if c_pdf.button("📄 Generar Reporte PDF"):
-            pdf_data = generar_pdf(df_f)
-            st.download_button("⬇️ Descargar PDF", pdf_data, "reporte_sicho.pdf")
+        df_final = df_full.copy()
+        df_final.columns = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
+        if busq: df_final = df_final[df_final['SKU'].astype(str).str.contains(busq) | df_final['PRODUCTO'].astype(str).str.contains(busq)]
 
-        mon_cols = ['COSTO USD', 'TIPO CAMBIO', 'COSTO MXN', 'AMAZON', 'ENVIO', 'FEE $', 'RET IVA', 'RET ISR', 'NETO', 'UTILIDAD']
-        fmt = {c: "${:,.2f}" for c in mon_cols}
+        fmt = {c: "${:,.2f}" for c in ['COSTO USD', 'AMAZON', 'ENVIO', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD']}
         fmt.update({'MARGEN %': "{:.2f}%", '% FEE': "{:.2f}%"})
 
-        st.dataframe(
-            df_f.style.format(fmt, na_rep="-").apply(estilo_filas, axis=1),
-            use_container_width=True, height=800, hide_index=True
-        )
+        st.write("### M - Listado Maestro")
+        st.dataframe(df_final.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=1900, hide_index=True)
+    else:
+        st.info("La base de datos está vacía. Registra tu primer producto.")
