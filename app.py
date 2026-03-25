@@ -6,10 +6,10 @@ import io
 from fpdf import FPDF
 
 # ==========================================
-# CALCUAMZ v4.2.3 - LOGO & ESTABILIDAD
+# CALCUAMZ v4.2.5 - FIX SYNTAX & ESTRUCTURA
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.3", page_icon="📦")
+st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.5", page_icon="📦")
 
 # --- ESTILO VISUAL ---
 st.markdown("""
@@ -100,15 +100,12 @@ if not st.session_state.auth:
 else:
     # --- LOGO Y SIDEBAR ---
     with st.sidebar:
-        # Contenedor para centrar el logo
-        col_logo_1, col_logo_2, col_logo_3 = st.columns([1, 2, 1])
-        with col_logo_2:
+        col_l1, col_l2, col_l3 = st.columns([0.5, 2, 0.5])
+        with col_l2:
             try:
-                # Ajustamos a 150px de ancho
                 st.image("500x500LOGODACO.png", width=150)
             except:
-                st.markdown("### 📦 Dacocel")
-        
+                st.subheader("📦 DACOCEL")
         st.divider()
         st.write(f"Usuario: **{st.session_state.user.upper()}**")
         if st.button("Cerrar Sesión", use_container_width=True):
@@ -118,97 +115,88 @@ else:
     if ws is None: st.error("Error Sheets"); st.stop()
     df_raw = pd.DataFrame(ws.get_all_records())
     
+    # --- BLOQUE PRINCIPAL ---
     if not df_raw.empty:
         df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
-        # Cálculo global de df_full para evitar NameError
         calc_p = df_raw.apply(calcular_detallado, axis=1)
         calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
         df_full = pd.concat([df_raw, calc_p], axis=1)
 
-        st.title("📊 Master Dashboard v4.2.3")
+        st.title("📊 Master Dashboard v4.2.5")
         
-        # --- MÉTRICAS ---
         m1, m2 = st.columns(2)
         m1.metric("Total Productos", len(df_raw))
         m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
 
         st.divider()
 
-        # --- GESTIÓN DE PRODUCTOS ---
-    t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
-    
-    with t1:
-        with st.form("f_new"):
-            st.subheader("Registrar Producto")
-            sk_in = st.text_input("SKU (Auto-generar si vacío)").upper().strip()
-            no_in = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
-            c1, c2, c3, c4, c5 = st.columns(5)
-            cos = c1.number_input("Costo USD", format="%.2f")
-            pre = c2.number_input("Precio AMZ", format="%.2f")
-            env_in = c3.number_input("Envío (MXN)", format="%.2f")
-            fee_in = c4.number_input("% Fee", value=10.0)
-            tc_in = c5.number_input("TC", value=18.50)
-            if st.form_submit_button("🚀 Guardar"):
-                if not no_in: 
-                    st.error("El nombre es obligatorio.")
-                else:
-                    sk_final = sk_in if sk_in else f"AUTO-{len(df_raw)+1}"
-                    ws.append_row([sk_final, no_in, cos, pre, env_in, fee_in, tc_in])
+        t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
+        
+        with t1:
+            with st.form("f_new"):
+                st.subheader("Registrar Producto")
+                sk_in = st.text_input("SKU (Auto-generar si vacío)").upper().strip()
+                no_in = st.text_input("Nombre del Producto (OBLIGATORIO)").upper().strip()
+                c1, c2, c3, c4, c5 = st.columns(5)
+                cos = c1.number_input("Costo USD", format="%.2f")
+                pre = c2.number_input("Precio AMZ", format="%.2f")
+                env_in = c3.number_input("Envío (MXN)", format="%.2f")
+                fee_in = c4.number_input("% Fee", value=10.0)
+                tc_in = c5.number_input("TC", value=18.50)
+                if st.form_submit_button("🚀 Guardar"):
+                    if not no_in: st.error("El nombre es obligatorio.")
+                    else:
+                        sk_final = sk_in if sk_in else f"AUTO-{len(df_raw)+1}"
+                        ws.append_row([sk_final, no_in, cos, pre, env_in, fee_in, tc_in])
+                        st.rerun()
+
+        with t2:
+            st.subheader("🔍 Buscar para Editar")
+            busq_editor = st.text_input("Filtrar por SKU o Nombre...", key="busq_ed").upper().strip()
+            opciones_todas = (df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO']).tolist()
+            opciones_f = [opt for opt in opciones_todas if busq_editor in str(opt).upper()] if busq_editor else opciones_todas
+
+            if len(opciones_f) > 0:
+                sel = st.selectbox("Selecciona:", opciones_f)
+                sku_sel = str(sel).split(" - ")[0]
+                idx = df_raw[df_raw['SKU'].astype(str) == sku_sel].index[0]
+                curr = df_raw.iloc[idx]
+                with st.form("f_edit"):
+                    enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
+                    ce1, ce2, ce3, ce4, ce5 = st.columns(5)
+                    ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
+                    epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
+                    eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
+                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
+                    etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
+                    if st.form_submit_button("💾 Actualizar"):
+                        ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
+                        st.rerun()
+                if st.button("🗑️ Eliminar"): 
+                    ws.delete_rows(int(idx + 2))
                     st.rerun()
 
-    with t2:
-        st.subheader("🔍 Buscar para Editar")
-        busq_editor = st.text_input("Filtrar por SKU o Nombre...", key="busq_ed").upper().strip()
-        opciones_todas = (df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO']).tolist()
-        opciones_f = [opt for opt in opciones_todas if busq_editor in str(opt).upper()] if busq_editor else opciones_todas
-
-        if len(opciones_f) > 0:
-            sel = st.selectbox("Selecciona:", opciones_f)
-            sku_sel = str(sel).split(" - ")[0]
-            idx = df_raw[df_raw['SKU'].astype(str) == sku_sel].index[0]
-            curr = df_raw.iloc[idx]
-            with st.form("f_edit"):
-                enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
-                ce1, ce2, ce3, ce4, ce5 = st.columns(5)
-                ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
-                epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
-                eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
-                efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
-                etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
-                if st.form_submit_button("💾 Actualizar"):
-                    ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
-                    st.rerun()
-            if st.button("🗑️ Eliminar"): 
-                ws.delete_rows(int(idx + 2))
+        with t3:
+            st.subheader("📦 Carga Masiva (Bulk)")
+            tc_bulk = st.number_input("Dólar para esta carga (MXN)", value=18.50, format="%.2f")
+            st.divider()
+            cb1, cb2 = st.columns(2)
+            plant_buf = io.BytesIO()
+            with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
+                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
+            cb1.download_button("📥 Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
+            f_bulk = st.file_uploader("Subir Excel/CSV", type=['xlsx', 'csv'])
+            if f_bulk and st.button(f"🚀 Cargar con Dólar a ${tc_bulk}"):
+                df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
+                df_b.columns = [str(c).upper().strip() for c in df_b.columns]
+                df_b['TIPO CAMBIO'] = tc_bulk
+                columnas = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
+                for col in columnas:
+                    if col not in df_b.columns: df_b[col] = 0
+                ws.append_rows(df_b[columnas].values.tolist())
                 st.rerun()
 
-    with t3:
-        st.subheader("📦 Carga Masiva (Bulk)")
-        st.info("💡 El Tipo de Cambio aquí se aplicará a TODO el archivo subido.")
-        tc_bulk = st.number_input("Dólar para esta carga (MXN)", value=18.50, format="%.2f")
-        
         st.divider()
-        cb1, cb2 = st.columns(2)
-        
-        # Plantilla
-        plant_buf = io.BytesIO()
-        with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-            pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
-        cb1.download_button("📥 Plantilla sin TC", plant_buf.getvalue(), "plantilla_bulk.xlsx")
-        
-        # Subida
-        f_bulk = st.file_uploader("Subir Excel/CSV", type=['xlsx', 'csv'])
-        if f_bulk and st.button(f"🚀 Cargar con Dólar a ${tc_bulk}"):
-            df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-            df_b.columns = [str(c).upper().strip() for c in df_b.columns]
-            df_b['TIPO CAMBIO'] = tc_bulk
-            # Asegurar orden: SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
-            columnas = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
-            for col in columnas:
-                if col not in df_b.columns: df_b[col] = 0
-            ws.append_rows(df_b[columnas].values.tolist())
-            st.success("¡Carga masiva completada!")
-            st.rerun()
 
         # --- TABLA M ---
         c_bus, c_pdf = st.columns([3, 1])
