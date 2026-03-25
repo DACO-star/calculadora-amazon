@@ -216,36 +216,41 @@ else:
                     st.success("¡Nuevos productos añadidos correctamente!")
                     st.rerun()
                 
-                # MODO 2: ACTUALIZACIÓN INTELIGENTE (Upsert)
+                # MODO 2: ACTUALIZACIÓN INTELIGENTE POR NOMBRE (Upsert)
                 else:
                     if df_raw.empty:
                         ws.append_rows(df_b.values.tolist())
                     else:
                         df_actual = df_raw.copy()
-                        # Forzamos que los SKUs sean texto para que la comparación sea exacta
-                        df_actual['SKU'] = df_actual['SKU'].astype(str)
-                        df_b['SKU'] = df_b['SKU'].astype(str)
+                        # Limpiamos nombres para evitar errores por espacios extra
+                        df_actual['PRODUCTO'] = df_actual['PRODUCTO'].astype(str).str.strip().str.upper()
+                        df_b['PRODUCTO'] = df_b['PRODUCTO'].astype(str).str.strip().str.upper()
                         
-                        # Usamos el SKU como la "llave" para buscar coincidencias
-                        df_actual.set_index('SKU', inplace=True)
-                        df_b.set_index('SKU', inplace=True)
+                        # Usamos el NOMBRE DEL PRODUCTO como la "llave"
+                        df_actual.set_index('PRODUCTO', inplace=True)
+                        df_b.set_index('PRODUCTO', inplace=True)
                         
-                        # 1. Sobreescribe los datos de los SKUs que ya existen
+                        # 1. Actualiza los datos de los nombres que ya existen
+                        # (Mantiene el SKU original si no viene uno nuevo en el Excel)
                         df_actual.update(df_b)
                         
-                        # 2. Encuentra los SKUs del Excel que son completamente nuevos
-                        nuevos_skus = df_b[~df_b.index.isin(df_actual.index)]
+                        # 2. Encuentra los Productos del Excel que son nuevos
+                        nuevos_productos = df_b[~df_b.index.isin(df_actual.index)]
                         
-                        # 3. Combina los actualizados con los nuevos
-                        df_final_bulk = pd.concat([df_actual, nuevos_skus])
+                        # 3. Combinamos
+                        df_final_bulk = pd.concat([df_actual, nuevos_productos])
                         df_final_bulk.reset_index(inplace=True)
-                        df_final_bulk = df_final_bulk[columnas]
                         
-                        # 4. Borra la hoja de Google Sheets y la reescribe rapidísimo con los datos limpios
+                        # Reordenamos columnas al formato de Google Sheets
+                        # SKU, PRODUCTO, COSTO USD, AMAZON, ENVIO, % FEE, TIPO CAMBIO
+                        columnas_orden = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
+                        df_final_bulk = df_final_bulk[columnas_orden]
+                        
+                        # 4. Limpieza y escritura masiva
                         ws.clear()
                         ws.update('A1', [df_final_bulk.columns.values.tolist()] + df_final_bulk.values.tolist())
                     
-                    st.success("¡Inventario actualizado y sincronizado con éxito!")
+                    st.success("¡Inventario sincronizado por NOMBRE con éxito!")
                     st.rerun()
 
         # --- TABLA M ---
