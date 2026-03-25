@@ -138,21 +138,48 @@ else:
 
     with t2:
         if not df_raw.empty:
-            sel = st.selectbox("Elegir SKU", df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO'])
-            idx = df_raw[df_raw['SKU'].astype(str) == sel.split(" - ")[0]].index[0]
-            curr = df_raw.iloc[idx]
-            with st.form("f_edit"):
-                enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
-                ce1, ce2, ce3, ce4, ce5 = st.columns(5)
-                ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
-                epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
-                eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
-                efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
-                etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
-                if st.form_submit_button("💾 Actualizar"):
-                    ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, eenv, efee, etc]])
+            st.subheader("🔍 Localizar Producto para Editar")
+            
+            # 1. BARRA DE BÚSQUEDA INTERNA PARA EL EDITOR
+            busq_editor = st.text_input("Escribe el SKU o Nombre para filtrar la lista...", key="busq_ed").upper().strip()
+            
+            # 2. FILTRAR OPCIONES BASADO EN LA BÚSQUEDA
+            opciones_todas = df_raw['SKU'].astype(str) + " - " + df_raw['PRODUCTO']
+            if busq_editor:
+                opciones_filtradas = [opt for opt in opciones_todas if busq_editor in opt]
+            else:
+                opciones_filtradas = opciones_todas
+
+            if not opciones_filtradas:
+                st.warning("No se encontraron coincidencias. Intenta con otro término.")
+            else:
+                sel = st.selectbox("Ahora selecciona de la lista filtrada:", opciones_filtradas)
+                
+                # Obtener el índice real en el DataFrame original
+                sku_seleccionado = sel.split(" - ")[0]
+                idx = df_raw[df_raw['SKU'].astype(str) == sku_seleccionado].index[0]
+                curr = df_raw.iloc[idx]
+
+                # 3. FORMULARIO DE EDICIÓN (Mantenemos todos los campos: Envío, Fee, etc.)
+                with st.form("f_edit"):
+                    enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
+                    ce1, ce2, ce3, ce4, ce5 = st.columns(5)
+                    ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
+                    epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
+                    eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
+                    efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
+                    etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
+                    
+                    if st.form_submit_button("💾 Actualizar Datos"):
+                        ws.update(f'A{idx+2}:G{idx+2}', [[curr['SKU'], enom.upper(), ecos, epre, eenv, efee, etc]])
+                        st.success(f"¡{sku_seleccionado} actualizado correctamente!")
+                        st.rerun()
+
+                # 4. BOTÓN DE ELIMINAR (Fuera del formulario por seguridad)
+                if st.button("🗑️ Eliminar permanentemente este Producto", type="primary"):
+                    ws.delete_rows(int(idx + 2))
+                    st.success("Producto eliminado.")
                     st.rerun()
-            if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
 
     with t3:
         st.subheader("Carga Masiva")
