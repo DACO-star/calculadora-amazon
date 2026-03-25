@@ -105,7 +105,7 @@ else:
         with col_logo_2:
             try:
                 # Ajustamos a 150px de ancho
-                st.image("logo.png", width=150)
+                st.image("500x500LOGODACO.png", width=150)
             except:
                 st.markdown("### 📦 Dacocel")
         
