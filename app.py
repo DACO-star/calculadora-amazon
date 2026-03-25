@@ -6,10 +6,10 @@ import io
 from fpdf import FPDF
 
 # ==========================================
-# CALCUAMZ v4.2.3 - LOGO & ESTABILIDAD
+# CALCUAMZ v4.2.5 - FIX SYNTAX & ESTRUCTURA
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.3", page_icon="📦")
+st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.5", page_icon="📦")
 
 # --- ESTILO VISUAL ---
 st.markdown("""
@@ -100,35 +100,36 @@ if not st.session_state.auth:
 else:
     # --- LOGO Y SIDEBAR ---
     with st.sidebar:
-        try:
-            st.image("logo.png", use_container_width=True)
-        except:
-            st.subheader("📦 CalcuAMZ")
+        col_l1, col_l2, col_l3 = st.columns([0.5, 2, 0.5])
+        with col_l2:
+            try:
+                st.image("500x500LOGODACO.png", width=150)
+            except:
+                st.subheader("📦 DACOCEL")
+        st.divider()
         st.write(f"Usuario: **{st.session_state.user.upper()}**")
-        if st.button("Cerrar Sesión"):
+        if st.button("Cerrar Sesión", use_container_width=True):
             st.session_state.auth = False; st.rerun()
 
     ws = conectar()
     if ws is None: st.error("Error Sheets"); st.stop()
     df_raw = pd.DataFrame(ws.get_all_records())
     
+    # --- BLOQUE PRINCIPAL ---
     if not df_raw.empty:
         df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
-        # Cálculo global de df_full para evitar NameError
         calc_p = df_raw.apply(calcular_detallado, axis=1)
         calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
         df_full = pd.concat([df_raw, calc_p], axis=1)
 
-        st.title("📊 Master Dashboard v4.2.3")
+        st.title("📊 Master Dashboard v4.2.5")
         
-        # --- MÉTRICAS ---
         m1, m2 = st.columns(2)
         m1.metric("Total Productos", len(df_raw))
         m2.metric("Margen Promedio", f"{df_full['MARGEN'].mean():.2f}%")
 
         st.divider()
 
-        # --- GESTIÓN ---
         t1, t2, t3 = st.tabs(["➕ Nuevo Registro", "✏️ Editar / Borrar", "📂 Carga Bulk"])
         
         with t1:
@@ -171,19 +172,29 @@ else:
                     if st.form_submit_button("💾 Actualizar"):
                         ws.update(f'A{idx+2}:G{idx+2}', [[sku_sel, enom.upper(), ecos, epre, eenv, efee, etc]])
                         st.rerun()
-                if st.button("🗑️ Eliminar"): ws.delete_rows(int(idx + 2)); st.rerun()
+                if st.button("🗑️ Eliminar"): 
+                    ws.delete_rows(int(idx + 2))
+                    st.rerun()
 
         with t3:
-            st.subheader("Carga Masiva")
+            st.subheader("📦 Carga Masiva (Bulk)")
+            tc_bulk = st.number_input("Dólar para esta carga (MXN)", value=18.50, format="%.2f")
+            st.divider()
             cb1, cb2 = st.columns(2)
             plant_buf = io.BytesIO()
             with pd.ExcelWriter(plant_buf, engine='xlsxwriter') as wr:
-                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']).to_excel(wr, index=False)
-            cb1.download_button("📥 Descargar Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
-            f_bulk = st.file_uploader("Subir Archivo", type=['xlsx', 'csv'])
-            if f_bulk and st.button("🚀 Iniciar Carga"):
+                pd.DataFrame(columns=['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE']).to_excel(wr, index=False)
+            cb1.download_button("📥 Plantilla", plant_buf.getvalue(), "plantilla_bulk.xlsx")
+            f_bulk = st.file_uploader("Subir Excel/CSV", type=['xlsx', 'csv'])
+            if f_bulk and st.button(f"🚀 Cargar con Dólar a ${tc_bulk}"):
                 df_b = pd.read_excel(f_bulk) if f_bulk.name.endswith('xlsx') else pd.read_csv(f_bulk)
-                ws.append_rows(df_b.values.tolist()); st.rerun()
+                df_b.columns = [str(c).upper().strip() for c in df_b.columns]
+                df_b['TIPO CAMBIO'] = tc_bulk
+                columnas = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO']
+                for col in columnas:
+                    if col not in df_b.columns: df_b[col] = 0
+                ws.append_rows(df_b[columnas].values.tolist())
+                st.rerun()
 
         st.divider()
 
