@@ -6,7 +6,7 @@ import io
 from fpdf import FPDF
 
 # ==========================================
-# CALCUAMZ v4.2.5 - FIX SYNTAX & ESTRUCTURA
+# CALCUAMZ v4.2.5 - RESTORED & PROTECTED
 # ==========================================
 
 st.set_page_config(layout="wide", page_title="CalcuAMZ v4.2.5", page_icon="📦")
@@ -39,9 +39,12 @@ def conectar():
 
 def calcular_detallado(r):
     try:
-        c_usd, p_amz = float(r.get('COSTO USD', 0)), float(r.get('AMAZON', 0))
-        p_fee, env = float(r.get('% FEE', 10.0)), float(r.get('ENVIO', 0))
+        c_usd = float(r.get('COSTO USD', 0))
+        p_amz = float(r.get('AMAZON', 0))
+        p_fee = float(r.get('% FEE', 10.0))
+        env = float(r.get('ENVIO', 0))
         t_c = float(r.get('TIPO CAMBIO', 18.00))
+        
         costo_mxn = c_usd * t_c
         dinero_fee = p_amz * (p_fee / 100)
         base_grav = p_amz / 1.16
@@ -113,11 +116,16 @@ else:
 
     ws = conectar()
     if ws is None: st.error("Error Sheets"); st.stop()
-    df_raw = pd.DataFrame(ws.get_all_records())
     
-    # --- BLOQUE PRINCIPAL ---
-    if not df_raw.empty:
+    # --- PROCESAMIENTO DE DATOS ---
+    registros = ws.get_all_records()
+    if not registros:
+        st.info("La base de datos está vacía. Registra tu primer producto.")
+    else:
+        df_raw = pd.DataFrame(registros)
+        # PARCHE CRÍTICO: Limpiar nombres de columnas
         df_raw.columns = [str(c).upper().strip() for c in df_raw.columns]
+        
         calc_p = df_raw.apply(calcular_detallado, axis=1)
         calc_p.columns = ['C_MX', 'F_$', 'IVA', 'ISR', 'NETO', 'UTIL', 'MARGEN']
         df_full = pd.concat([df_raw, calc_p], axis=1)
@@ -164,8 +172,9 @@ else:
                 with st.form("f_edit"):
                     enom = st.text_input("Nombre", value=str(curr['PRODUCTO']))
                     ce1, ce2, ce3, ce4, ce5 = st.columns(5)
-                    ecos = ce1.number_input("Costo USD", value=float(curr['COSTO USD']))
-                    epre = ce2.number_input("Precio AMZ", value=float(curr['AMAZON']))
+                    # Uso de .get() para mayor seguridad contra KeyErrors
+                    ecos = ce1.number_input("Costo USD", value=float(curr.get('COSTO USD', 0)))
+                    epre = ce2.number_input("Precio AMZ", value=float(curr.get('AMAZON', 0)))
                     eenv = ce3.number_input("Envío", value=float(curr.get('ENVIO', 0.0)))
                     efee = ce4.number_input("% Fee", value=float(curr.get('% FEE', 10.0)))
                     etc = ce5.number_input("TC", value=float(curr.get('TIPO CAMBIO', 18.50)))
@@ -214,5 +223,3 @@ else:
 
         st.write("### M - Listado Maestro")
         st.dataframe(df_final.style.format(fmt).apply(estilo_filas, axis=1), use_container_width=True, height=1900, hide_index=True)
-    else:
-        st.info("La base de datos está vacía. Registra tu primer producto.")
