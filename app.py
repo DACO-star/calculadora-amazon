@@ -8,81 +8,73 @@ from datetime import datetime
 import numpy as np
 
 # =================================================================
-# CALCUAMZ v5.3 - AUTO-SKU GENERATOR & FULL RESTORATION
+# CALCUAMZ v5.5 - SECUENCIADOR INTELIGENTE (SKIP DUPLICATES)
 # =================================================================
 # Empresa: Dacocel | Usuario: sr.sicho
-# Innovación: Generación automática de SKU (M-Fila) y carga segura.
+# Innovación: Buscador de siguiente SKU disponible (Salto de ocupados).
 # =================================================================
 
 st.set_page_config(
     layout="wide", 
-    page_title="CalcuAMZ v5.3 | Dacocel Master", 
+    page_title="CalcuAMZ v5.5 | Dacocel Master", 
     page_icon="📦"
 )
 
 # --- 1. CONEXIÓN A GOOGLE SHEETS ---
 def conectar_base_datos():
-    """Establece conexión segura con la hoja de cálculo central."""
     try:
         info_gcp = st.secrets["gcp_service_account"]
         alcances = ["https://www.googleapis.com/auth/spreadsheets"]
-        credenciales = Credentials.from_service_account_info(info_gcp, scopes=alcances)
-        cliente = gspread.authorize(credenciales)
+        creds = Credentials.from_service_account_info(info_gcp, scopes=alcances)
+        cliente = gspread.authorize(creds)
         id_hoja = "1mF-9Ayv95PJmk4v8PrIDHf2-lRnHFZd5WOxQ__cb3Ss"
         return cliente.open_by_key(id_hoja).sheet1
     except Exception as e:
-        st.error(f"❌ Error de enlace con la nube: {e}")
+        st.error(f"❌ Error de enlace: {e}")
         return None
 
-# --- 2. MOTOR DE CÁLCULO FINANCIERO (OBJETIVO 10% NETO) ---
+# --- 2. FUNCIONES DE APOYO ---
 def limpiar_moneda(valor, por_defecto=0.0):
-    """Limpia formatos de moneda para cálculos."""
     try:
-        if pd.isna(valor) or str(valor).strip() == "":
-            return por_defecto
-        limpio = str(valor).replace('$', '').replace(',', '').replace('%', '').strip()
-        return float(limpio)
-    except:
-        return por_defecto
+        if pd.isna(valor) or str(valor).strip() == "": return por_defecto
+        return float(str(valor).replace('$', '').replace(',', '').replace('%', '').strip())
+    except: return por_defecto
+
+def obtener_siguiente_sku_disponible(skus_existentes):
+    """Busca el primer número M-X que no esté en el set de SKUs."""
+    i = len(skus_existentes) + 2 # Empezamos por el conteo base de filas
+    while f"M-{i}" in skus_existentes:
+        i += 1
+    return f"M-{i}"
 
 def motor_fiscal_dacocel(fila):
-    """Calcula el precio para 10.00% neto considerando retenciones e-commerce en México."""
     try:
         c_usd = limpiar_moneda(fila.get('COSTO USD', 0))
         p_amz_in = limpiar_moneda(fila.get('AMAZON', 0))
         fee_pct = limpiar_moneda(fila.get('% FEE', 4.0))
         envio_mxn = limpiar_moneda(fila.get('ENVIO', 80.0))
         tc_v = limpiar_moneda(fila.get('TIPO CAMBIO', 18.00))
-        
         costo_mxn = c_usd * tc_v
         fee_dec = fee_pct / 100
         tasa_ret = 0.09051724 
-        
         if p_amz_in <= 0:
-            neto_obj = costo_mxn / 0.90
-            p_amz = (neto_obj + envio_mxn) / (1 - fee_dec - tasa_ret)
-        else:
-            p_amz = p_amz_in
-
+            p_amz = ( (costo_mxn / 0.90) + envio_mxn) / (1 - fee_dec - tasa_ret)
+        else: p_amz = p_amz_in
         m_fee = p_amz * fee_dec
         base_iva = p_amz / 1.16
         r_iva, r_isr = base_iva * 0.08, base_iva * 0.025
         neto = p_amz - m_fee - envio_mxn - r_iva - r_isr
         util = neto - costo_mxn
         margen = (util / neto) * 100 if neto > 0 else 0
-        
         return pd.Series([p_amz, costo_mxn, m_fee, r_iva, r_isr, neto, util, margen])
-    except:
-        return pd.Series([0.0] * 8)
+    except: return pd.Series([0.0] * 8)
 
-# --- 3. GENERADOR DE REPORTES PDF ---
+# --- 3. GENERADOR DE PDF ---
 def crear_reporte_pdf(df_final):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 15)
-    pdf.cell(190, 10, "DACOCEL - REPORTE MAESTRO DE PRECIOS", ln=True, align='C')
-    pdf.set_font("Arial", 'I', 9)
-    pdf.cell(190, 7, f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align='C')
+    pdf.cell(190, 10, "DACOCEL - REPORTE DE PRECIOS v5.5", ln=True, align='C')
     pdf.ln(10)
     pdf.set_fill_color(30, 30, 30); pdf.set_text_color(255, 255, 255)
     pdf.cell(30, 8, " SKU", 1, 0, 'L', True)
@@ -97,13 +89,12 @@ def crear_reporte_pdf(df_final):
         pdf.cell(35, 7, f"{fila['MARGEN %']:.2f}%", 1, 1, 'R')
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 4. SISTEMA DE ACCESO ---
+# --- 4. ACCESO ---
 ACCESOS = {"admin": "amazon123", "dav": "ventas2026", "dax": "amazon2026", "cesar": "ventas789"}
-
 if 'auth_active' not in st.session_state: st.session_state.auth_active = False
 
 if not st.session_state.auth_active:
-    st.title("🔐 Acceso CalcuAMZ v5.3")
+    st.title("🔐 Acceso CalcuAMZ v5.5")
     u_log, p_log = st.text_input("Usuario"), st.text_input("Contraseña", type="password")
     if st.button("Entrar"):
         if u_log.lower() in ACCESOS and ACCESOS[u_log.lower()] == p_log:
@@ -115,37 +106,41 @@ else:
 
     if not df_db.empty:
         df_db.columns = [str(c).upper().strip() for c in df_db.columns]
+        skus_existentes = set(df_db['SKU'].astype(str).tolist())
         res = df_db.apply(motor_fiscal_dacocel, axis=1)
         res.columns = ['AMZ_P', 'C_MXN', 'FEE_$', 'IVA_R', 'ISR_R', 'NETO_R', 'UTIL_$', 'MARG_P']
         df_full = pd.concat([df_db, res], axis=1)
         df_full['AMAZON'] = df_full.apply(lambda x: x['AMZ_P'] if limpiar_moneda(x['AMAZON']) <= 0 else x['AMAZON'], axis=1)
+    else:
+        skus_existentes = set()
 
-    st.title("📊 Dacocel Master Dashboard v5.3")
+    st.title("📊 Dacocel Master Dashboard v5.5")
     t_add, t_edit, t_bulk = st.tabs(["➕ Nuevo Producto", "✏️ Editar / Buscar", "📂 Carga Masiva"])
 
-    # --- ALTA MANUAL CON AUTO-SKU ---
+    # --- ALTA MANUAL CON SECUENCIADOR ---
     with t_add:
         with st.form("form_alta"):
-            st.subheader("Alta Manual (SKU Automático)")
-            # SKU informativo basado en la siguiente fila disponible
-            prox_fila = len(raw) + 2 
-            sku_auto = f"M-{prox_fila}"
-            st.info(f"El próximo SKU asignado será: **{sku_auto}**")
+            st.subheader("Alta Manual")
+            # Predicción del siguiente SKU para mostrar al usuario
+            sku_sugerido = obtener_siguiente_sku_disponible(skus_existentes)
+            st.info(f"Siguiente SKU libre detectado: **{sku_sugerido}**")
             
             n_nom = st.text_input("Nombre del Producto").upper().strip()
             c1, c2, c3, c4, c5 = st.columns(5)
             n_cos, n_pre, n_env, n_fee, n_tc = c1.number_input("Costo USD"), c2.number_input("Precio AMZ (0=Auto)"), c3.number_input("Envío", 80.0), c4.number_input("% Fee", 4.0), c5.number_input("TC", 18.0)
             
             if st.form_submit_button("🚀 Guardar"):
-                if not n_nom: st.error("El nombre es obligatorio.")
+                if not n_nom: st.error("Nombre obligatorio.")
                 else:
-                    hoja.append_row([sku_auto, n_nom, n_cos, n_pre, n_env, n_fee, n_tc])
-                    st.success(f"✅ Registrado como {sku_auto}."); st.rerun()
+                    # Buscamos de nuevo por si alguien guardó algo en ese inter
+                    sku_final = obtener_siguiente_sku_disponible(skus_existentes)
+                    hoja.append_row([sku_final, n_nom, n_cos, n_pre, n_env, n_fee, n_tc])
+                    st.success(f"✅ Registrado exitosamente como {sku_final}"); st.rerun()
 
-    # --- EDITAR CON BUSCADOR ---
+    # --- EDITAR ---
     with t_edit:
         if not df_db.empty:
-            q_edit = st.text_input("🔍 Buscar SKU o Nombre para editar:").upper()
+            q_edit = st.text_input("🔍 Buscar SKU o Nombre:").upper()
             opts = (df_full['SKU'].astype(str) + " - " + df_full['PRODUCTO']).tolist()
             opts_f = [o for o in opts if q_edit in o] if q_edit else opts
             if opts_f:
@@ -162,46 +157,47 @@ else:
                         st.rerun()
                 if st.button("🗑️ Borrar"): hoja.delete_rows(int(idx + 2)); st.rerun()
 
-    # --- CARGA MASIVA CON AUTO-SKU ---
+    # --- CARGA MASIVA CON SALTO DE DUPLICADOS ---
     with t_bulk:
-        st.subheader("Operaciones por Lotes")
-        tc_plantilla = st.number_input("Tipo de Cambio para plantilla:", value=18.0)
-        df_p = pd.DataFrame({'SKU':['AUTO'], 'PRODUCTO':['NOMBRE'], 'COSTO USD':[0.0], 'AMAZON':[0.0], 'ENVIO':[80.0], '% FEE':[4.0], 'TIPO CAMBIO':[tc_plantilla]})
+        st.subheader("Bulk con Secuenciador Inteligente")
+        tc_p = st.number_input("TC Plantilla:", value=18.0)
+        df_p = pd.DataFrame({'SKU':['AUTO'], 'PRODUCTO':['NOMBRE'], 'COSTO USD':[0.0], 'AMAZON':[0.0], 'ENVIO':[80.0], '% FEE':[4.0], 'TIPO CAMBIO':[tc_p]})
         buffer_p = io.BytesIO()
-        with pd.ExcelWriter(buffer_p, engine='xlsxwriter') as writer: df_p.to_excel(writer, index=False)
-        st.download_button(f"📥 Bajar Plantilla", buffer_p.getvalue(), "plantilla.xlsx")
+        with pd.ExcelWriter(buffer_p) as writer: df_p.to_excel(writer, index=False)
+        st.download_button("📥 Bajar Plantilla", buffer_p.getvalue(), "plantilla.xlsx")
         
-        st.divider()
         u_file = st.file_uploader("Subir Excel:", type=['xlsx'])
-        if u_file and st.button("🚀 Carga Masiva Inteligente"):
+        if u_file and st.button("🚀 Iniciar Carga"):
             try:
                 df_up = pd.read_excel(u_file).replace({np.nan: '', None: ''})
                 filas_nuevas = []
-                start_row = len(raw) + 2
+                # Copia local de los SKUs para ir agregando los nuevos en memoria
+                pool_skus = skus_existentes.copy()
                 
-                for i, row in df_up.iterrows():
-                    # Si el SKU viene vacío o dice 'AUTO', generamos M-Fila
-                    nuevo_sku = f"M-{start_row + i}"
+                for _, row in df_up.iterrows():
+                    # Siempre buscamos el siguiente libre, saltando los que ya están en el pool
+                    sku_asignado = obtener_siguiente_sku_disponible(pool_skus)
+                    pool_skus.add(sku_asignado)
+                    
                     filas_nuevas.append([
-                        nuevo_sku, 
-                        str(row.get('PRODUCTO', '')).upper(),
-                        limpiar_moneda(row.get('COSTO USD')),
-                        limpiar_moneda(row.get('AMAZON')),
-                        limpiar_moneda(row.get('ENVIO', 80.0)),
-                        limpiar_moneda(row.get('% FEE', 4.0)),
-                        limpiar_moneda(row.get('TIPO CAMBIO', tc_plantilla))
+                        sku_asignado, str(row.get('PRODUCTO', '')).upper(),
+                        limpiar_moneda(row.get('COSTO USD')), limpiar_moneda(row.get('AMAZON')),
+                        limpiar_moneda(row.get('ENVIO', 80.0)), limpiar_moneda(row.get('% FEE', 4.0)),
+                        limpiar_moneda(row.get('TIPO CAMBIO', tc_p))
                     ])
                 
-                hoja.append_rows(filas_nuevas)
-                st.success(f"✅ {len(filas_nuevas)} productos cargados con SKU automático."); st.rerun()
+                if filas_nuevas:
+                    hoja.append_rows(filas_nuevas)
+                    st.success(f"✅ {len(filas_nuevas)} productos integrados sin colisiones de SKU.")
+                    st.rerun()
             except Exception as ex: st.error(f"Error: {ex}")
 
-    # --- TABLA Y PDF ---
+    # --- VISUALIZACIÓN ---
     st.divider()
     if not df_db.empty:
         df_v = df_full[['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TIPO CAMBIO', 'C_MXN', 'FEE_$', 'IVA_R', 'ISR_R', 'NETO_R', 'UTIL_$', 'MARG_P']].copy()
         df_v.columns = ['SKU', 'PRODUCTO', 'COSTO USD', 'AMAZON', 'ENVIO', '% FEE', 'TC', 'C_MXN', 'F_$', 'IVA', 'ISR', 'NETO', 'UTILIDAD', 'MARGEN %']
-        q_g = st.text_input("🔍 Filtro global:").upper()
+        q_g = st.text_input("🔍 Filtro rápido:").upper()
         if q_g: df_v = df_v[df_v['PRODUCTO'].str.contains(q_g) | df_v['SKU'].astype(str).str.contains(q_g)]
         fmt = {"COSTO USD": "${:,.2f}", "AMAZON": "${:,.2f}", "ENVIO": "${:,.2f}", "TC": "${:,.2f}", "C_MXN": "${:,.2f}", "F_$": "${:,.2f}", "IVA": "${:,.2f}", "ISR": "${:,.2f}", "NETO": "${:,.2f}", "UTILIDAD": "${:,.2f}", "MARGEN %": "{:.2f}%", "% FEE": "{:.2f}%"}
         def semaforo(row):
